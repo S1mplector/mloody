@@ -28,6 +28,7 @@ ctest --test-dir build --output-on-failure
 ./build/mloody t50 backlight-get
 ./build/mloody t50 backlight-set --level 2
 ./build/mloody t50 color-mode --mode open
+./build/mloody t50 color-mode --mode effect
 ./build/mloody t50 color-direct --r 255 --g 0 --b 0 --save 1 --strategy capture-v2
 ./build/mloody t50 color-direct --r 255 --g 0 --b 0 --slot 2 --save 0
 ./build/mloody t50 color-zone --zone logo --r 255 --g 0 --b 0 --save 0
@@ -77,6 +78,7 @@ Available tools:
 ./build/mloody t50 polling-probe --opcode 0x21 --hz 1000
 ./build/mloody t50 lod-probe --opcode 0x22 --lod 2
 ./build/mloody t50 color-mode --mode open
+./build/mloody t50 color-mode --mode effect
 ./build/mloody t50 color-direct --r 255 --g 0 --b 0 --slots 20 --save 1 --strategy capture-v2
 ./build/mloody t50 color-direct --r 255 --g 0 --b 0 --slot 2 --save 0
 ./build/mloody t50 color-zone --zone wheel --r 0 --g 255 --b 0 --save 0
@@ -88,7 +90,7 @@ Available tools:
 ```
 
 `dpi-probe`/`polling-probe`/`lod-probe`/`color-probe` are mapping helpers; they are intentionally explicit about opcode so you can test and confirm behavior on your own device before we lock in stable named mappings.
-`color-mode` sends captured menu/mode transitions (`open`, `constant`, `discard`) over `opcode 0x03`.
+`color-mode` sends captured menu/mode transitions (`open`, `effect`, `discard`) over `opcode 0x03`. (`constant` is kept as a compatibility alias for `effect`.)
 `color-direct`/`color-zone` now default to `--prepare 0` to avoid unintended mode transitions. Use `--prepare 1` to run the captured preamble (`open` + `0x00 0x02`) before RGB payload writes while probing.
 `color-zone` is a safer named wrapper around `color-direct` for common targets (`logo`, `wheel`, `rear`, `all`) and defaults to `--save 0` during RE.
 Current mapping hypothesis for T50/W70-style packets: `logo=slot 8`, `wheel=slot 15`, `rear=slots 1-7,9-14`, `all=slots 1-15`.

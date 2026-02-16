@@ -500,7 +500,7 @@
     printf("  t50 dpi-probe --opcode <n> --dpi <n> [--flag <n>] [--offset <n>] [selectors]\n");
     printf("  t50 polling-probe --opcode <n> --hz <n> [--flag <n>] [--offset <n>] [selectors]\n");
     printf("  t50 lod-probe --opcode <n> --lod <n> [--flag <n>] [--offset <n>] [selectors]\n");
-    printf("  t50 color-mode --mode <open|constant|discard> [selectors]\n");
+    printf("  t50 color-mode --mode <open|effect|discard> [selectors]\n");
     printf("  t50 color-direct --r <n> --g <n> --b <n> [--slots <1..20>] [--slot <1..20>] [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2>] [selectors]\n");
     printf("  t50 color-zone --zone <logo|wheel|rear|all> --r <n> --g <n> --b <n> [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2>] [selectors]\n");
     printf("  t50 color-probe --opcode <n> --r <n> --g <n> --b <n> [--flag <n>] [--offset <n>] [selectors]\n");
@@ -1546,7 +1546,7 @@
 
     NSString *mode = options[@"--mode"];
     if (mode == nil) {
-        fprintf(stderr, "t50 color-mode requires --mode <open|constant|discard>.\n");
+        fprintf(stderr, "t50 color-mode requires --mode <open|effect|discard>.\n");
         return 1;
     }
 
@@ -1563,7 +1563,7 @@
         modeBytes[1] = 0x01;
         modeBytes[4] = 0x01;
         modeBytes[5] = 0x02;
-    } else if ([normalizedMode isEqualToString:@"constant"]) {
+    } else if ([normalizedMode isEqualToString:@"effect"] || [normalizedMode isEqualToString:@"constant"]) {
         modeBytes[0] = 0x06;
         modeBytes[1] = 0x01;
         modeBytes[4] = 0x00;
@@ -1574,7 +1574,7 @@
         modeBytes[4] = 0x00;
         modeBytes[5] = 0x00;
     } else {
-        fprintf(stderr, "t50 color-mode --mode must be one of: open, constant, discard.\n");
+        fprintf(stderr, "t50 color-mode --mode must be one of: open, effect, discard.\n");
         return 1;
     }
 
