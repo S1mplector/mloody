@@ -1,18 +1,8 @@
 # mloody
 
-`mloody` is an Objective-C / Objective-C++ macOS project scaffold for building a Bloody mouse driver stack with a **hexagonal architecture**.
+`mloody` is an Objective-C macOS project scaffold for building a Bloody mouse driver for macOS. 
 
 The repository is intentionally layered so core behavior stays decoupled from macOS-specific I/O and transport details.
-
-## Architecture
-
-- `src/domain`: Business rules, entities, value objects, and pure policy.
-- `src/application`: Use cases and `ports` (`@protocol`) that define dependencies.
-- `src/adapters`: Inbound/outbound adapter implementations.
-- `src/bootstrap`: Composition root (`main.mm`) where concrete adapters are wired.
-- `tests/unit`: Unit-style tests targeting application + domain through in-memory adapters.
-
-See `docs/architecture.md` for dependency direction and extension points.
 
 ## Build
 
@@ -35,6 +25,10 @@ ctest --test-dir build --output-on-failure
 ./build/mloody feature-set --report-id 0x07 --data "11 22 33"
 ./build/mloody feature-get --report-id 0x07 --length 16
 ./build/mloody feature-scan --from 0x01 --to 0x10 --length 16
+./build/mloody t50 backlight-get
+./build/mloody t50 backlight-set --level 2
+./build/mloody t50 command-read --opcode 0x11 --flag 0x00
+./build/mloody t50 command-write --opcode 0x11 --data "ff 00 00" --offset 8
 ```
 
 Commands default to T50-first selection when no explicit selector is provided.
@@ -46,6 +40,7 @@ T50 detection uses model-name matching (`T50`) and a known T50 product ID (`0x7F
 - `feature-get`: read a raw HID feature report payload.
 - `feature-scan`: sweep a report-id range and dump readable feature reports.
 - `apply`: profile-intent use case placeholder; T50 packet mapping is still pending.
+- `t50`: T50-focused command group for mapped and mapping-in-progress controls.
 
 Selectors can be added to `apply`, `feature-set`, and `feature-get`:
 
@@ -54,6 +49,29 @@ Selectors can be added to `apply`, `feature-set`, and `feature-get`:
 ```
 
 For `feature-set`, payload bytes are hex and can be written as `1122ff`, `11 22 ff`, or `0x11 0x22 0xff`.
+
+## T50 Mapping Utilities
+
+`mloody` now includes a T50 command channel built around the observed packet shape:
+
+- report id: `0x07`
+- packet length: `72`
+- byte `0`: `0x07` magic
+- byte `1`: opcode
+- byte `4`: read/write flag (`0x00` read, `0x80` write)
+- payload offset typically starts at byte `8`
+
+Available tools:
+
+```bash
+./build/mloody t50 opcode-scan --from 0x10 --to 0x30 --flag 0x00
+./build/mloody t50 dpi-probe --opcode 0x20 --dpi 1600
+./build/mloody t50 polling-probe --opcode 0x21 --hz 1000
+./build/mloody t50 lod-probe --opcode 0x22 --lod 2
+./build/mloody t50 color-probe --opcode 0x13 --r 255 --g 0 --b 0
+```
+
+`dpi-probe`/`polling-probe`/`lod-probe`/`color-probe` are mapping helpers; they are intentionally explicit about opcode so you can test and confirm behavior on your own device before we lock in stable named mappings.
 
 ## Notes for Real Driver Work
 

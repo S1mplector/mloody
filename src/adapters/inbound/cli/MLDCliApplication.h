@@ -3,6 +3,7 @@
 @class MLDApplyPerformanceProfileUseCase;
 @class MLDDiscoverSupportedDevicesUseCase;
 @class MLDReadFeatureReportUseCase;
+@class MLDT50ExchangeVendorCommandUseCase;
 @class MLDWriteFeatureReportUseCase;
 
 NS_ASSUME_NONNULL_BEGIN
@@ -12,7 +13,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)initWithDiscoverUseCase:(MLDDiscoverSupportedDevicesUseCase *)discoverUseCase
                     applyProfileUseCase:(MLDApplyPerformanceProfileUseCase *)applyProfileUseCase
             writeFeatureReportUseCase:(MLDWriteFeatureReportUseCase *)writeFeatureReportUseCase
-             readFeatureReportUseCase:(MLDReadFeatureReportUseCase *)readFeatureReportUseCase NS_DESIGNATED_INITIALIZER;
+             readFeatureReportUseCase:(MLDReadFeatureReportUseCase *)readFeatureReportUseCase
+        t50ExchangeCommandUseCase:(MLDT50ExchangeVendorCommandUseCase *)t50ExchangeCommandUseCase NS_DESIGNATED_INITIALIZER;
 
 - (instancetype)init NS_UNAVAILABLE;
 

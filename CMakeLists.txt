@@ -26,6 +26,7 @@ add_library(mloody_application STATIC
     src/application/use_cases/MLDApplyPerformanceProfileUseCase.m
     src/application/use_cases/MLDWriteFeatureReportUseCase.m
     src/application/use_cases/MLDReadFeatureReportUseCase.m
+    src/application/use_cases/MLDT50ExchangeVendorCommandUseCase.m
 )
 target_include_directories(mloody_application PUBLIC ${PROJECT_SOURCE_DIR}/src)
 target_compile_options(mloody_application PRIVATE -fobjc-arc)
@@ -106,4 +107,14 @@ if(MLOODY_BUILD_TESTS)
         ${FOUNDATION_FRAMEWORK}
     )
     add_test(NAME supported_device_catalog_tests COMMAND supported_device_catalog_tests)
+
+    add_executable(t50_exchange_vendor_command_tests tests/unit/T50ExchangeVendorCommandTests.mm)
+    target_compile_options(t50_exchange_vendor_command_tests PRIVATE -fobjc-arc)
+    target_link_libraries(t50_exchange_vendor_command_tests PRIVATE
+        mloody_adapters_memory
+        mloody_application
+        mloody_domain
+        ${FOUNDATION_FRAMEWORK}
+    )
+    add_test(NAME t50_exchange_vendor_command_tests COMMAND t50_exchange_vendor_command_tests)
 endif()

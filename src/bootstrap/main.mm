@@ -6,6 +6,7 @@
 #import "application/use_cases/MLDApplyPerformanceProfileUseCase.h"
 #import "application/use_cases/MLDDiscoverSupportedDevicesUseCase.h"
 #import "application/use_cases/MLDReadFeatureReportUseCase.h"
+#import "application/use_cases/MLDT50ExchangeVendorCommandUseCase.h"
 #import "application/use_cases/MLDWriteFeatureReportUseCase.h"
 
 int main(int argc, const char *argv[]) {
@@ -21,11 +22,14 @@ int main(int argc, const char *argv[]) {
             [[MLDWriteFeatureReportUseCase alloc] initWithFeatureTransportPort:featureAdapter];
         MLDReadFeatureReportUseCase *readFeatureUseCase =
             [[MLDReadFeatureReportUseCase alloc] initWithFeatureTransportPort:featureAdapter];
+        MLDT50ExchangeVendorCommandUseCase *t50ExchangeUseCase =
+            [[MLDT50ExchangeVendorCommandUseCase alloc] initWithFeatureTransportPort:featureAdapter];
 
         MLDCliApplication *app = [[MLDCliApplication alloc] initWithDiscoverUseCase:discoverUseCase
                                                                  applyProfileUseCase:applyUseCase
                                                          writeFeatureReportUseCase:writeFeatureUseCase
-                                                          readFeatureReportUseCase:readFeatureUseCase];
+                                                          readFeatureReportUseCase:readFeatureUseCase
+                                                     t50ExchangeCommandUseCase:t50ExchangeUseCase];
         return [app runWithArgc:argc argv:argv];
     }
 }
