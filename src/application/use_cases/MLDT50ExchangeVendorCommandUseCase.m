@@ -13,12 +13,13 @@ static const uint8_t MLDT50WriteFlag = 0x80;
 static const uint8_t MLDT50ReadFlag = 0x00;
 static const NSUInteger MLDT50BacklightPayloadOffset = 8;
 static const uint8_t MLDT50CoreSetOpcodeCandidate = 0x0C;
-static const uint8_t MLDT50CoreReadOpcodeCandidate = 0x1E;
+static const uint8_t MLDT50CoreReadOpcodeCandidate = 0x1F;
 static const NSUInteger MLDT50CorePayloadOffset = 8;
 static const uint8_t MLDT50CoreCommandPrefix0 = 0x06;
 static const uint8_t MLDT50CoreCommandPrefix1 = 0x80;
 static const uint8_t MLDT50CoreSlotMin = 1;
 static const uint8_t MLDT50CoreSlotMax = 4;
+static const NSUInteger MLDT50CoreReadWordOffset = MLDT50CorePayloadOffset + 2;
 
 typedef struct {
     uint8_t opcode;
@@ -39,6 +40,29 @@ static const MLDT50SaveStep MLDT50CaptureV1SaveSequence[] = {
     {0x03, 0x00, 2, {0x06, 0x02}, 2},
     {0x03, 0x00, 2, {0x03, 0x0B, 0x01}, 3},
     {0x03, 0x00, 2, {0x03, 0x0B, 0x00}, 3},
+};
+
+// Capture-v2 mirrors a broader Windows transaction envelope observed around successful writes.
+static const MLDT50SaveStep MLDT50CaptureV2SaveSequence[] = {
+    {0x14, 0x00, 8, {0x40}, 1},
+    {0x05, 0x00, 8, {0x00}, 0},
+    {0x2F, 0x00, 24, {0x02, 0x00, 0x00, 0x00, 0x00, 0xE2}, 6},
+    {0x0E, 0x00, 8, {0x00}, 0},
+    {0x0F, 0x00, 8, {0x07}, 1},
+    {0x0A, 0x00, 8, {0x00}, 0},
+    {0x03, 0x00, 2, {0x06, 0x05}, 2},
+    {0x03, 0x00, 2, {0x06, 0x06}, 2},
+    {0x03, 0x00, 2, {0x06, 0x02}, 2},
+    {0x03, 0x00, 2, {0x03, 0x0B, 0x01}, 3},
+    {0x03, 0x00, 2, {0x03, 0x0B, 0x00}, 3},
+    {0x14, 0x00, 8, {0x40}, 1},
+    {0x05, 0x00, 8, {0x00}, 0},
+    {0x2F, 0x00, 24, {0x02, 0x00, 0x00, 0x00, 0x00, 0xE2}, 6},
+    {0x0E, 0x00, 8, {0x00}, 0},
+    {0x0F, 0x00, 8, {0x07}, 1},
+    {0x0A, 0x00, 8, {0x00}, 0},
+    {0x03, 0x00, 2, {0x06, 0x05}, 2},
+    {0x03, 0x00, 2, {0x06, 0x06}, 2},
 };
 
 @interface MLDT50ExchangeVendorCommandUseCase ()
@@ -73,6 +97,8 @@ static const MLDT50SaveStep MLDT50CaptureV1SaveSequence[] = {
             return sizeof(MLDT50QuickSaveSequence) / sizeof(MLDT50QuickSaveSequence[0]);
         case MLDT50SaveStrategyCaptureV1:
             return sizeof(MLDT50CaptureV1SaveSequence) / sizeof(MLDT50CaptureV1SaveSequence[0]);
+        case MLDT50SaveStrategyCaptureV2:
+            return sizeof(MLDT50CaptureV2SaveSequence) / sizeof(MLDT50CaptureV2SaveSequence[0]);
     }
 
     return 0;
@@ -221,18 +247,37 @@ static const MLDT50SaveStep MLDT50CaptureV1SaveSequence[] = {
 
 - (nullable NSNumber *)readCoreSlotCandidateForDevice:(MLDMouseDevice *)device
                                                  error:(NSError **)error {
+    NSDictionary<NSString *, NSNumber *> *state = [self readCoreStateCandidateForDevice:device error:error];
+    if (state == nil) {
+        return nil;
+    }
+
+    return state[@"slot"];
+}
+
+- (nullable NSDictionary<NSString *, NSNumber *> *)readCoreStateCandidateForDevice:(MLDMouseDevice *)device
+                                                                              error:(NSError **)error {
     NSData *response = [self executeForDevice:device
                                        opcode:MLDT50CoreReadOpcodeCandidate
                                     writeFlag:MLDT50ReadFlag
                                 payloadOffset:MLDT50CorePayloadOffset
                                       payload:[NSData data]
                                         error:error];
-    if (response == nil || response.length <= (MLDT50CorePayloadOffset + 2)) {
+    if (response == nil || response.length <= (MLDT50CoreReadWordOffset + 1)) {
         return nil;
     }
 
     const uint8_t *bytes = (const uint8_t *)response.bytes;
-    return @(bytes[MLDT50CorePayloadOffset + 2]);
+    const uint16_t rawWord = (uint16_t)bytes[MLDT50CoreReadWordOffset] |
+                             ((uint16_t)bytes[MLDT50CoreReadWordOffset + 1] << 8);
+    const uint8_t lowBits = (uint8_t)(rawWord & 0x03);
+    const uint8_t slot = (uint8_t)(lowBits + MLDT50CoreSlotMin);
+    return @{
+        @"opcode" : @(MLDT50CoreReadOpcodeCandidate),
+        @"rawWord" : @(rawWord),
+        @"lowBits" : @(lowBits),
+        @"slot" : @(slot),
+    };
 }
 
 - (BOOL)saveSettingsToDevice:(MLDMouseDevice *)device
@@ -249,6 +294,10 @@ static const MLDT50SaveStep MLDT50CaptureV1SaveSequence[] = {
         case MLDT50SaveStrategyCaptureV1:
             steps = MLDT50CaptureV1SaveSequence;
             stepCount = sizeof(MLDT50CaptureV1SaveSequence) / sizeof(MLDT50CaptureV1SaveSequence[0]);
+            break;
+        case MLDT50SaveStrategyCaptureV2:
+            steps = MLDT50CaptureV2SaveSequence;
+            stepCount = sizeof(MLDT50CaptureV2SaveSequence) / sizeof(MLDT50CaptureV2SaveSequence[0]);
             break;
         default:
             if (error != nil) {

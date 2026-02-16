@@ -23,6 +23,7 @@ typedef NS_ERROR_ENUM(MLDT50ControlErrorDomain, MLDT50ControlErrorCode) {
 typedef NS_ENUM(NSUInteger, MLDT50SaveStrategy) {
     MLDT50SaveStrategyQuick = 0,
     MLDT50SaveStrategyCaptureV1 = 1,
+    MLDT50SaveStrategyCaptureV2 = 2,
 };
 
 @interface MLDT50ExchangeVendorCommandUseCase : NSObject
@@ -54,6 +55,9 @@ typedef NS_ENUM(NSUInteger, MLDT50SaveStrategy) {
 
 - (nullable NSNumber *)readCoreSlotCandidateForDevice:(MLDMouseDevice *)device
                                                  error:(NSError **)error;
+
+- (nullable NSDictionary<NSString *, NSNumber *> *)readCoreStateCandidateForDevice:(MLDMouseDevice *)device
+                                                                              error:(NSError **)error;
 
 - (BOOL)saveSettingsToDevice:(MLDMouseDevice *)device
                     strategy:(MLDT50SaveStrategy)strategy

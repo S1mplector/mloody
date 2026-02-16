@@ -204,8 +204,9 @@ int main(void) {
         NSMutableData *coreReadResponse = [NSMutableData dataWithLength:[MLDT50ExchangeVendorCommandUseCase packetLength]];
         uint8_t *coreReadBytes = (uint8_t *)coreReadResponse.mutableBytes;
         coreReadBytes[0] = 0x07;
-        coreReadBytes[1] = 0x1e;
-        coreReadBytes[10] = 0x04;
+        coreReadBytes[1] = 0x1f;
+        coreReadBytes[10] = 0xE9;
+        coreReadBytes[11] = 0x00;
         coreReadSpy.forcedReadPayload = coreReadResponse;
         MLDT50ExchangeVendorCommandUseCase *coreReadUseCase =
             [[MLDT50ExchangeVendorCommandUseCase alloc] initWithFeatureTransportPort:coreReadSpy];
@@ -218,7 +219,31 @@ int main(void) {
         if (!Expect(coreReadError == nil, @"Expected no error for core candidate read.")) {
             return 1;
         }
-        if (!Expect(coreSlot.unsignedIntegerValue == 4, @"Expected core candidate read to parse byte 10.")) {
+        if (!Expect(coreSlot.unsignedIntegerValue == 2, @"Expected core candidate read to decode low 2 bits + 1.")) {
+            return 1;
+        }
+
+        NSData *coreReadRequest = coreReadSpy.writes.lastObject;
+        const uint8_t *coreReadRequestBytes = (const uint8_t *)coreReadRequest.bytes;
+        if (!Expect(coreReadRequestBytes != NULL && coreReadRequestBytes[1] == 0x1f,
+                    @"Expected core candidate read to query opcode 0x1f.")) {
+            return 1;
+        }
+
+        NSDictionary<NSString *, NSNumber *> *coreState = [coreReadUseCase readCoreStateCandidateForDevice:device error:&coreReadError];
+        if (!Expect(coreState != nil, @"Expected core state candidate read to return decoded state.")) {
+            return 1;
+        }
+        if (!Expect(coreState[@"rawWord"].unsignedIntegerValue == 0x00E9,
+                    @"Expected core state to expose raw word from response bytes.")) {
+            return 1;
+        }
+        if (!Expect(coreState[@"lowBits"].unsignedIntegerValue == 1,
+                    @"Expected core state to expose low 2 bits.")) {
+            return 1;
+        }
+        if (!Expect(coreState[@"slot"].unsignedIntegerValue == 2,
+                    @"Expected core state to expose normalized core slot.")) {
             return 1;
         }
 
@@ -279,6 +304,39 @@ int main(void) {
         if (!Expect(captureLastPacket[1] == 0x03 && captureLastPacket[2] == 0x03 &&
                         captureLastPacket[3] == 0x0B && captureLastPacket[4] == 0x00,
                     @"Expected capture-v1 last packet to release save latch.")) {
+            return 1;
+        }
+
+        [saveSpy.writes removeAllObjects];
+        NSError *captureV2SaveError = nil;
+        BOOL captureV2Saved = [saveUseCase saveSettingsToDevice:device
+                                                       strategy:MLDT50SaveStrategyCaptureV2
+                                                          error:&captureV2SaveError];
+        if (!Expect(captureV2Saved, @"Expected capture-v2 T50 save strategy to succeed.")) {
+            return 1;
+        }
+        if (!Expect(captureV2SaveError == nil, @"Expected no error for capture-v2 save strategy.")) {
+            return 1;
+        }
+        if (!Expect(saveSpy.writes.count ==
+                        [MLDT50ExchangeVendorCommandUseCase saveStepCountForStrategy:MLDT50SaveStrategyCaptureV2],
+                    @"Expected capture-v2 strategy to emit expected number of packets.")) {
+            return 1;
+        }
+
+        const uint8_t *captureV2FirstPacket = (const uint8_t *)saveSpy.writes.firstObject.bytes;
+        if (!Expect(captureV2FirstPacket[1] == 0x14 && captureV2FirstPacket[8] == 0x40,
+                    @"Expected capture-v2 first packet to match 14 .. 40 preamble.")) {
+            return 1;
+        }
+        const uint8_t *captureV2ThirdPacket = (const uint8_t *)saveSpy.writes[2].bytes;
+        if (!Expect(captureV2ThirdPacket[1] == 0x2F && captureV2ThirdPacket[24] == 0x02 && captureV2ThirdPacket[29] == 0xE2,
+                    @"Expected capture-v2 third packet to match 2f preamble payload bytes.")) {
+            return 1;
+        }
+        const uint8_t *captureV2LastPacket = (const uint8_t *)saveSpy.writes.lastObject.bytes;
+        if (!Expect(captureV2LastPacket[1] == 0x03 && captureV2LastPacket[2] == 0x06 && captureV2LastPacket[3] == 0x06,
+                    @"Expected capture-v2 tail packet to end with 03 06 06.")) {
             return 1;
         }
 
