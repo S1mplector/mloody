@@ -493,20 +493,21 @@ static const NSUInteger MLDT50DirectColorStartOffset = 6;
     printf("  t50 backlight-set --level <0..3> [selectors]\n");
     printf("  t50 core-get [selectors]\n");
     printf("  t50 core-state [selectors]\n");
-    printf("  t50 core-set --core <1..4> [--save <0|1>] [--strategy <quick|capture-v1|capture-v2>] [selectors]\n");
-    printf("  t50 save [--strategy <quick|capture-v1|capture-v2>] [selectors]\n");
+    printf("  t50 core-set --core <1..4> [--save <0|1>] [--strategy <quick|capture-v1|capture-v2|capture-v3>] [selectors]\n");
+    printf("  t50 save [--strategy <quick|capture-v1|capture-v2|capture-v3>] [selectors]\n");
     printf("  t50 command-read --opcode <n> [--flag <n>] [--offset <n>] [--data <hex>] [selectors]\n");
     printf("  t50 command-write --opcode <n> --data <hex> [--flag <n>] [--offset <n>] [selectors]\n");
     printf("  t50 opcode-scan [--from <n>] [--to <n>] [--flag <n>] [--offset <n>] [--data <hex>] [selectors]\n");
     printf("  t50 capture --file <path> [--from <n>] [--to <n>] [--flag <n>] [--offset <n>] [--data <hex>] [selectors]\n");
     printf("  t50 capture-diff --before <path> --after <path>\n");
     printf("  t50 dpi-probe --opcode <n> --dpi <n> [--flag <n>] [--offset <n>] [selectors]\n");
+    printf("  t50 dpi-step --action <up|down|cycle> [--opcode <n>] [--commit <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2|capture-v3>] [selectors]\n");
     printf("  t50 polling-probe --opcode <n> --hz <n> [--flag <n>] [--offset <n>] [selectors]\n");
     printf("  t50 lod-probe --opcode <n> --lod <n> [--flag <n>] [--offset <n>] [selectors]\n");
     printf("  t50 color-mode --mode <open|effect|discard> [selectors]\n");
-    printf("  t50 color-direct --r <n> --g <n> --b <n> [--slots <1..21>] [--slot <1..21>] [--frames <1..120>] [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2>] [selectors]\n");
-    printf("  t50 color-zone --zone <logo|wheel|wheel-indicator|rear|all> --r <n> --g <n> --b <n> [--frames <1..120>] [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2>] [selectors]\n");
-    printf("  t50 color-sweep --r <n> --g <n> --b <n> [--from <1..21>] [--to <1..21>] [--delay-ms <n>] [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2>] [selectors]\n");
+    printf("  t50 color-direct --r <n> --g <n> --b <n> [--slots <1..21>] [--slot <1..21>] [--frames <1..120>] [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2|capture-v3>] [selectors]\n");
+    printf("  t50 color-zone --zone <logo|wheel|wheel-indicator|rear|all> --r <n> --g <n> --b <n> [--frames <1..120>] [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2|capture-v3>] [selectors]\n");
+    printf("  t50 color-sweep --r <n> --g <n> --b <n> [--from <1..21>] [--to <1..21>] [--delay-ms <n>] [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2|capture-v3>] [selectors]\n");
     printf("  t50 color-probe --opcode <n> --r <n> --g <n> --b <n> [--flag <n>] [--offset <n>] [selectors]\n");
     printf("\n");
     printf("selectors: --vid --pid --serial --model\n");
@@ -556,6 +557,9 @@ static const NSUInteger MLDT50DirectColorStartOffset = 6;
     }
     if ([subcommand isEqualToString:@"dpi-probe"]) {
         return [self runT50DPIProbeWithArguments:subArguments];
+    }
+    if ([subcommand isEqualToString:@"dpi-step"]) {
+        return [self runT50DPIStepWithArguments:subArguments];
     }
     if ([subcommand isEqualToString:@"polling-probe"]) {
         return [self runT50PollingProbeWithArguments:subArguments];
@@ -777,8 +781,10 @@ static const NSUInteger MLDT50DirectColorStartOffset = 6;
         strategy = MLDT50SaveStrategyCaptureV1;
     } else if ([strategyOption isEqualToString:@"capture-v2"]) {
         strategy = MLDT50SaveStrategyCaptureV2;
+    } else if ([strategyOption isEqualToString:@"capture-v3"]) {
+        strategy = MLDT50SaveStrategyCaptureV3;
     } else {
-        fprintf(stderr, "t50 core-set --strategy must be one of: quick, capture-v1, capture-v2.\n");
+        fprintf(stderr, "t50 core-set --strategy must be one of: quick, capture-v1, capture-v2, capture-v3.\n");
         return 1;
     }
 
@@ -833,8 +839,10 @@ static const NSUInteger MLDT50DirectColorStartOffset = 6;
         strategy = MLDT50SaveStrategyCaptureV1;
     } else if ([strategyOption isEqualToString:@"capture-v2"]) {
         strategy = MLDT50SaveStrategyCaptureV2;
+    } else if ([strategyOption isEqualToString:@"capture-v3"]) {
+        strategy = MLDT50SaveStrategyCaptureV3;
     } else {
-        fprintf(stderr, "t50 save --strategy must be one of: quick, capture-v1, capture-v2.\n");
+        fprintf(stderr, "t50 save --strategy must be one of: quick, capture-v1, capture-v2, capture-v3.\n");
         return 1;
     }
 
@@ -1406,6 +1414,117 @@ static const NSUInteger MLDT50DirectColorStartOffset = 6;
                                 successLabel:@"t50 dpi-probe"];
 }
 
+- (int)runT50DPIStepWithArguments:(NSArray<NSString *> *)arguments {
+    NSString *parseError = nil;
+    NSDictionary<NSString *, NSString *> *options = [self parseOptionMapFromArguments:arguments errorMessage:&parseError];
+    if (options == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSSet<NSString *> *allowed = [NSSet setWithArray:@[
+        @"--action", @"--opcode", @"--commit", @"--save", @"--strategy", @"--vid", @"--pid", @"--serial", @"--model"
+    ]];
+    if (![self validateAllowedOptions:allowed options:options errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSString *action = options[@"--action"];
+    if (action == nil) {
+        fprintf(stderr, "t50 dpi-step requires --action <up|down|cycle>.\n");
+        return 1;
+    }
+
+    NSString *normalizedAction = action.lowercaseString;
+    uint8_t actionCode = 0;
+    if ([normalizedAction isEqualToString:@"down"]) {
+        actionCode = 0x00;
+    } else if ([normalizedAction isEqualToString:@"up"]) {
+        actionCode = 0x01;
+    } else if ([normalizedAction isEqualToString:@"cycle"]) {
+        actionCode = 0x02;
+    } else {
+        fprintf(stderr, "t50 dpi-step --action must be one of: up, down, cycle.\n");
+        return 1;
+    }
+
+    NSUInteger opcode = 0x0F;
+    NSUInteger commitValue = 1;
+    NSUInteger saveValue = 0;
+    if (![self parseOptionalUnsigned:options[@"--opcode"] maxValue:255 fieldName:@"--opcode" output:&opcode errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--commit"] maxValue:1 fieldName:@"--commit" output:&commitValue errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--save"] maxValue:1 fieldName:@"--save" output:&saveValue errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSString *strategyOption = options[@"--strategy"] ?: @"capture-v2";
+    MLDT50SaveStrategy strategy = MLDT50SaveStrategyCaptureV2;
+    if ([strategyOption isEqualToString:@"quick"]) {
+        strategy = MLDT50SaveStrategyQuick;
+    } else if ([strategyOption isEqualToString:@"capture-v1"]) {
+        strategy = MLDT50SaveStrategyCaptureV1;
+    } else if ([strategyOption isEqualToString:@"capture-v2"]) {
+        strategy = MLDT50SaveStrategyCaptureV2;
+    } else if ([strategyOption isEqualToString:@"capture-v3"]) {
+        strategy = MLDT50SaveStrategyCaptureV3;
+    } else {
+        fprintf(stderr, "t50 dpi-step --strategy must be one of: quick, capture-v1, capture-v2, capture-v3.\n");
+        return 1;
+    }
+
+    MLDMouseDevice *target = [self selectT50DeviceWithOptions:options errorMessage:&parseError];
+    if (target == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSData *payload = [NSData dataWithBytes:&actionCode length:1];
+    NSError *stepError = nil;
+    NSData *stepResponse = [self.t50ExchangeCommandUseCase executeForDevice:target
+                                                                      opcode:(uint8_t)opcode
+                                                                   writeFlag:0x00
+                                                               payloadOffset:8
+                                                                     payload:payload
+                                                                       error:&stepError];
+    if (stepResponse == nil) {
+        fprintf(stderr, "t50 dpi-step action error: %s\n", stepError.localizedDescription.UTF8String);
+        return 1;
+    }
+
+    if (commitValue == 1) {
+        NSError *commitError = nil;
+        NSData *commitResponse = [self.t50ExchangeCommandUseCase executeForDevice:target
+                                                                            opcode:0x0A
+                                                                         writeFlag:0x00
+                                                                     payloadOffset:8
+                                                                           payload:[NSData data]
+                                                                             error:&commitError];
+        if (commitResponse == nil) {
+            fprintf(stderr, "t50 dpi-step commit error: %s\n", commitError.localizedDescription.UTF8String);
+            return 1;
+        }
+    }
+
+    if (saveValue == 1) {
+        NSError *saveError = nil;
+        BOOL saved = [self.t50ExchangeCommandUseCase saveSettingsToDevice:target strategy:strategy error:&saveError];
+        if (!saved) {
+            fprintf(stderr, "t50 dpi-step save error: %s\n", saveError.localizedDescription.UTF8String);
+            return 1;
+        }
+    }
+
+    printf("t50 dpi-step ok action=%s opcode=0x%02lx commit=%lu save=%lu strategy=%s\n",
+           normalizedAction.UTF8String,
+           (unsigned long)opcode,
+           (unsigned long)commitValue,
+           (unsigned long)saveValue,
+           strategyOption.UTF8String);
+    return 0;
+}
+
 - (int)runT50PollingProbeWithArguments:(NSArray<NSString *> *)arguments {
     NSString *parseError = nil;
     NSDictionary<NSString *, NSString *> *options = [self parseOptionMapFromArguments:arguments errorMessage:&parseError];
@@ -1660,8 +1779,10 @@ static const NSUInteger MLDT50DirectColorStartOffset = 6;
         strategy = MLDT50SaveStrategyCaptureV1;
     } else if ([strategyOption isEqualToString:@"capture-v2"]) {
         strategy = MLDT50SaveStrategyCaptureV2;
+    } else if ([strategyOption isEqualToString:@"capture-v3"]) {
+        strategy = MLDT50SaveStrategyCaptureV3;
     } else {
-        fprintf(stderr, "t50 color-direct --strategy must be one of: quick, capture-v1, capture-v2.\n");
+        fprintf(stderr, "t50 color-direct --strategy must be one of: quick, capture-v1, capture-v2, capture-v3.\n");
         return 1;
     }
 
@@ -1828,8 +1949,10 @@ static const NSUInteger MLDT50DirectColorStartOffset = 6;
         strategy = MLDT50SaveStrategyCaptureV1;
     } else if ([strategyOption isEqualToString:@"capture-v2"]) {
         strategy = MLDT50SaveStrategyCaptureV2;
+    } else if ([strategyOption isEqualToString:@"capture-v3"]) {
+        strategy = MLDT50SaveStrategyCaptureV3;
     } else {
-        fprintf(stderr, "t50 color-zone --strategy must be one of: quick, capture-v1, capture-v2.\n");
+        fprintf(stderr, "t50 color-zone --strategy must be one of: quick, capture-v1, capture-v2, capture-v3.\n");
         return 1;
     }
 
@@ -1956,8 +2079,10 @@ static const NSUInteger MLDT50DirectColorStartOffset = 6;
         strategy = MLDT50SaveStrategyCaptureV1;
     } else if ([strategyOption isEqualToString:@"capture-v2"]) {
         strategy = MLDT50SaveStrategyCaptureV2;
+    } else if ([strategyOption isEqualToString:@"capture-v3"]) {
+        strategy = MLDT50SaveStrategyCaptureV3;
     } else {
-        fprintf(stderr, "t50 color-sweep --strategy must be one of: quick, capture-v1, capture-v2.\n");
+        fprintf(stderr, "t50 color-sweep --strategy must be one of: quick, capture-v1, capture-v2, capture-v3.\n");
         return 1;
     }
 

@@ -348,6 +348,60 @@ int main(void) {
             return 1;
         }
 
+        [saveSpy.writes removeAllObjects];
+        NSError *captureV3SaveError = nil;
+        BOOL captureV3Saved = [saveUseCase saveSettingsToDevice:device
+                                                       strategy:MLDT50SaveStrategyCaptureV3
+                                                          error:&captureV3SaveError];
+        if (!Expect(captureV3Saved, @"Expected capture-v3 T50 save strategy to succeed.")) {
+            return 1;
+        }
+        if (!Expect(captureV3SaveError == nil, @"Expected no error for capture-v3 save strategy.")) {
+            return 1;
+        }
+        if (!Expect(saveSpy.writes.count ==
+                        [MLDT50ExchangeVendorCommandUseCase saveStepCountForStrategy:MLDT50SaveStrategyCaptureV3],
+                    @"Expected capture-v3 strategy to emit expected number of packets.")) {
+            return 1;
+        }
+
+        const uint8_t *captureV3FirstPacket = (const uint8_t *)saveSpy.writes.firstObject.bytes;
+        if (!Expect(captureV3FirstPacket[1] == 0x03 && captureV3FirstPacket[2] == 0x06 &&
+                        captureV3FirstPacket[3] == 0x05,
+                    @"Expected capture-v3 first packet to start with 03 06 05 warmup.")) {
+            return 1;
+        }
+        const uint8_t *captureV3OpenBrightnessPacket = (const uint8_t *)saveSpy.writes[3].bytes;
+        if (!Expect(captureV3OpenBrightnessPacket[1] == 0x03 && captureV3OpenBrightnessPacket[2] == 0x03 &&
+                        captureV3OpenBrightnessPacket[3] == 0x0B && captureV3OpenBrightnessPacket[4] == 0x01,
+                    @"Expected capture-v3 to open brightness menu via 03 03 0B 01.")) {
+            return 1;
+        }
+        const uint8_t *captureV3BrightnessMinPacket = (const uint8_t *)saveSpy.writes[4].bytes;
+        if (!Expect(captureV3BrightnessMinPacket[1] == 0x11 && captureV3BrightnessMinPacket[4] == 0x80 &&
+                        captureV3BrightnessMinPacket[8] == 0x00,
+                    @"Expected capture-v3 to set brightness ramp start to 0.")) {
+            return 1;
+        }
+        const uint8_t *captureV3BrightnessMaxPacket = (const uint8_t *)saveSpy.writes[10].bytes;
+        if (!Expect(captureV3BrightnessMaxPacket[1] == 0x11 && captureV3BrightnessMaxPacket[4] == 0x80 &&
+                        captureV3BrightnessMaxPacket[8] == 0x03,
+                    @"Expected capture-v3 to set brightness ramp end to 3.")) {
+            return 1;
+        }
+        const uint8_t *captureV3TailPreamblePacket = (const uint8_t *)saveSpy.writes[15].bytes;
+        if (!Expect(captureV3TailPreamblePacket[1] == 0x2F && captureV3TailPreamblePacket[24] == 0x02 &&
+                        captureV3TailPreamblePacket[29] == 0xE2,
+                    @"Expected capture-v3 tail to include 2F preamble bytes.")) {
+            return 1;
+        }
+        const uint8_t *captureV3LastPacket = (const uint8_t *)saveSpy.writes.lastObject.bytes;
+        if (!Expect(captureV3LastPacket[1] == 0x03 && captureV3LastPacket[2] == 0x06 &&
+                        captureV3LastPacket[3] == 0x06,
+                    @"Expected capture-v3 to end with 03 06 06 finalize packet.")) {
+            return 1;
+        }
+
         MLDRecordingFeatureTransportSpy *failingSpy = [[MLDRecordingFeatureTransportSpy alloc] init];
         failingSpy.shouldFail = YES;
         MLDT50ExchangeVendorCommandUseCase *failingUseCase =

@@ -54,6 +54,39 @@ static const MLDT50SaveStep MLDT50CaptureV2SaveSequence[] = {
     {0x0A, 0x00, 8, {0x00}, 0},
 };
 
+// Capture-v3 mirrors the full brightness "OK/save" transaction observed in
+// Windows traces, then replays the same finalize tail plus 06 05/06.
+static const MLDT50SaveStep MLDT50CaptureV3WarmupSequence[] = {
+    {0x03, 0x00, 2, {0x06, 0x05}, 2},
+    {0x03, 0x00, 2, {0x06, 0x06}, 2},
+    {0x03, 0x00, 2, {0x06, 0x02}, 2},
+    {0x03, 0x00, 2, {0x03, 0x0B, 0x01}, 3},
+};
+
+static const MLDT50SaveStep MLDT50CaptureV3BrightnessRampSequence[] = {
+    {0x11, 0x80, 8, {0x00}, 1},
+    {0x0A, 0x00, 8, {0x00}, 0},
+    {0x11, 0x80, 8, {0x01}, 1},
+    {0x0A, 0x00, 8, {0x00}, 0},
+    {0x11, 0x80, 8, {0x02}, 1},
+    {0x0A, 0x00, 8, {0x00}, 0},
+    {0x11, 0x80, 8, {0x03}, 1},
+    {0x0A, 0x00, 8, {0x00}, 0},
+};
+
+static const MLDT50SaveStep MLDT50CaptureV3FinalizeSequence[] = {
+    {0x03, 0x00, 2, {0x03, 0x0B, 0x00}, 3},
+    {0x14, 0x00, 8, {0x40}, 1},
+    {0x05, 0x00, 8, {0x00}, 0},
+    {0x2F, 0x00, 24, {0x02, 0x00, 0x00, 0x00, 0x00, 0xE2}, 6},
+    {0x0E, 0x00, 8, {0x00}, 0},
+    {0x0F, 0x00, 8, {0x07}, 1},
+    {0x0C, 0x00, 8, {0x06, 0x80, 0x01}, 3},
+    {0x0A, 0x00, 8, {0x00}, 0},
+    {0x03, 0x00, 2, {0x06, 0x05}, 2},
+    {0x03, 0x00, 2, {0x06, 0x06}, 2},
+};
+
 @interface MLDT50ExchangeVendorCommandUseCase ()
 
 @property(nonatomic, strong) id<MLDFeatureTransportPort> featureTransportPort;
@@ -88,6 +121,10 @@ static const MLDT50SaveStep MLDT50CaptureV2SaveSequence[] = {
             return sizeof(MLDT50CaptureV1SaveSequence) / sizeof(MLDT50CaptureV1SaveSequence[0]);
         case MLDT50SaveStrategyCaptureV2:
             return sizeof(MLDT50CaptureV2SaveSequence) / sizeof(MLDT50CaptureV2SaveSequence[0]);
+        case MLDT50SaveStrategyCaptureV3:
+            return sizeof(MLDT50CaptureV3WarmupSequence) / sizeof(MLDT50CaptureV3WarmupSequence[0]) +
+                   sizeof(MLDT50CaptureV3BrightnessRampSequence) / sizeof(MLDT50CaptureV3BrightnessRampSequence[0]) +
+                   sizeof(MLDT50CaptureV3FinalizeSequence) / sizeof(MLDT50CaptureV3FinalizeSequence[0]);
     }
 
     return 0;
@@ -269,6 +306,60 @@ static const MLDT50SaveStep MLDT50CaptureV2SaveSequence[] = {
     };
 }
 
+- (BOOL)executeSaveStep:(MLDT50SaveStep)step
+                onDevice:(MLDMouseDevice *)device
+               stepIndex:(NSUInteger)stepIndex
+              totalSteps:(NSUInteger)totalSteps
+                   error:(NSError **)error {
+    NSData *payload = [NSData dataWithBytes:step.payload length:step.payloadLength];
+    NSError *stepError = nil;
+    NSData *response = [self executeForDevice:device
+                                       opcode:step.opcode
+                                    writeFlag:step.writeFlag
+                                payloadOffset:step.payloadOffset
+                                      payload:payload
+                                        error:&stepError];
+    if (response != nil) {
+        return YES;
+    }
+
+    if (error != nil) {
+        NSString *message =
+            [NSString stringWithFormat:@"T50 save failed at step %lu/%lu (opcode=0x%02x).",
+                                       (unsigned long)(stepIndex + 1),
+                                       (unsigned long)totalSteps,
+                                       step.opcode];
+        NSMutableDictionary *userInfo = [NSMutableDictionary dictionaryWithObject:message
+                                                                             forKey:NSLocalizedDescriptionKey];
+        if (stepError != nil) {
+            userInfo[NSUnderlyingErrorKey] = stepError;
+        }
+        *error = [NSError errorWithDomain:MLDT50ControlErrorDomain
+                                     code:MLDT50ControlErrorCodeSaveSequenceFailed
+                                 userInfo:userInfo];
+    }
+
+    return NO;
+}
+
+- (BOOL)executeSaveSequence:(const MLDT50SaveStep *)steps
+                  stepCount:(NSUInteger)stepCount
+                   onDevice:(MLDMouseDevice *)device
+             startingAtStep:(NSUInteger)startingAtStep
+                 totalSteps:(NSUInteger)totalSteps
+                      error:(NSError **)error {
+    for (NSUInteger index = 0; index < stepCount; ++index) {
+        if (![self executeSaveStep:steps[index]
+                          onDevice:device
+                         stepIndex:(startingAtStep + index)
+                        totalSteps:totalSteps
+                             error:error]) {
+            return NO;
+        }
+    }
+    return YES;
+}
+
 - (BOOL)saveSettingsToDevice:(MLDMouseDevice *)device
                     strategy:(MLDT50SaveStrategy)strategy
                        error:(NSError **)error {
@@ -288,10 +379,46 @@ static const MLDT50SaveStep MLDT50CaptureV2SaveSequence[] = {
             steps = MLDT50CaptureV2SaveSequence;
             stepCount = sizeof(MLDT50CaptureV2SaveSequence) / sizeof(MLDT50CaptureV2SaveSequence[0]);
             break;
+        case MLDT50SaveStrategyCaptureV3: {
+            const NSUInteger warmupCount = sizeof(MLDT50CaptureV3WarmupSequence) / sizeof(MLDT50CaptureV3WarmupSequence[0]);
+            const NSUInteger rampCount =
+                sizeof(MLDT50CaptureV3BrightnessRampSequence) / sizeof(MLDT50CaptureV3BrightnessRampSequence[0]);
+            const NSUInteger finalizeCount =
+                sizeof(MLDT50CaptureV3FinalizeSequence) / sizeof(MLDT50CaptureV3FinalizeSequence[0]);
+            const NSUInteger totalSteps = warmupCount + rampCount + finalizeCount;
+            NSUInteger index = 0;
+
+            if (![self executeSaveSequence:MLDT50CaptureV3WarmupSequence
+                                 stepCount:warmupCount
+                                  onDevice:device
+                            startingAtStep:index
+                                totalSteps:totalSteps
+                                     error:error]) {
+                return NO;
+            }
+            index += warmupCount;
+
+            if (![self executeSaveSequence:MLDT50CaptureV3BrightnessRampSequence
+                                 stepCount:rampCount
+                                  onDevice:device
+                            startingAtStep:index
+                                totalSteps:totalSteps
+                                     error:error]) {
+                return NO;
+            }
+            index += rampCount;
+
+            return [self executeSaveSequence:MLDT50CaptureV3FinalizeSequence
+                                   stepCount:finalizeCount
+                                    onDevice:device
+                              startingAtStep:index
+                                  totalSteps:totalSteps
+                                       error:error];
+        }
         default:
             if (error != nil) {
                 NSString *message = [NSString stringWithFormat:@"Unsupported T50 save strategy: %lu.",
-                                                             (unsigned long)strategy];
+                                     (unsigned long)strategy];
                 *error = [NSError errorWithDomain:MLDT50ControlErrorDomain
                                              code:MLDT50ControlErrorCodeUnsupportedSaveStrategy
                                          userInfo:@{NSLocalizedDescriptionKey : message}];
@@ -299,37 +426,12 @@ static const MLDT50SaveStep MLDT50CaptureV2SaveSequence[] = {
             return NO;
     }
 
-    for (NSUInteger index = 0; index < stepCount; ++index) {
-        const MLDT50SaveStep step = steps[index];
-        NSData *payload = [NSData dataWithBytes:step.payload length:step.payloadLength];
-        NSError *stepError = nil;
-        NSData *response = [self executeForDevice:device
-                                           opcode:step.opcode
-                                        writeFlag:step.writeFlag
-                                    payloadOffset:step.payloadOffset
-                                          payload:payload
-                                            error:&stepError];
-        if (response == nil) {
-            if (error != nil) {
-                NSString *message =
-                    [NSString stringWithFormat:@"T50 save failed at step %lu/%lu (opcode=0x%02x).",
-                                               (unsigned long)(index + 1),
-                                               (unsigned long)stepCount,
-                                               step.opcode];
-                NSMutableDictionary *userInfo = [NSMutableDictionary dictionaryWithObject:message
-                                                                                     forKey:NSLocalizedDescriptionKey];
-                if (stepError != nil) {
-                    userInfo[NSUnderlyingErrorKey] = stepError;
-                }
-                *error = [NSError errorWithDomain:MLDT50ControlErrorDomain
-                                             code:MLDT50ControlErrorCodeSaveSequenceFailed
-                                         userInfo:userInfo];
-            }
-            return NO;
-        }
-    }
-
-    return YES;
+    return [self executeSaveSequence:steps
+                           stepCount:stepCount
+                            onDevice:device
+                      startingAtStep:0
+                          totalSteps:stepCount
+                               error:error];
 }
 
 @end
