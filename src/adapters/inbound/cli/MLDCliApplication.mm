@@ -500,7 +500,7 @@
     printf("  t50 dpi-probe --opcode <n> --dpi <n> [--flag <n>] [--offset <n>] [selectors]\n");
     printf("  t50 polling-probe --opcode <n> --hz <n> [--flag <n>] [--offset <n>] [selectors]\n");
     printf("  t50 lod-probe --opcode <n> --lod <n> [--flag <n>] [--offset <n>] [selectors]\n");
-    printf("  t50 color-direct --r <n> --g <n> --b <n> [--slots <1..20>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2>] [selectors]\n");
+    printf("  t50 color-direct --r <n> --g <n> --b <n> [--slots <1..20>] [--slot <1..20>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2>] [selectors]\n");
     printf("  t50 color-probe --opcode <n> --r <n> --g <n> --b <n> [--flag <n>] [--offset <n>] [selectors]\n");
     printf("\n");
     printf("selectors: --vid --pid --serial --model\n");
@@ -1506,7 +1506,7 @@
     }
 
     NSSet<NSString *> *allowed = [NSSet setWithArray:@[
-        @"--r", @"--g", @"--b", @"--slots", @"--save", @"--strategy", @"--vid", @"--pid", @"--serial", @"--model"
+        @"--r", @"--g", @"--b", @"--slots", @"--slot", @"--save", @"--strategy", @"--vid", @"--pid", @"--serial", @"--model"
     ]];
     if (![self validateAllowedOptions:allowed options:options errorMessage:&parseError]) {
         fprintf(stderr, "%s\n", parseError.UTF8String);
@@ -1525,11 +1525,13 @@
     NSUInteger green = 0;
     NSUInteger blue = 0;
     NSUInteger slots = 20;
+    NSUInteger slot = 0;
     NSUInteger saveValue = 1;
     if (![self parseRequiredUnsigned:rString maxValue:255 fieldName:@"--r" output:&red errorMessage:&parseError] ||
         ![self parseRequiredUnsigned:gString maxValue:255 fieldName:@"--g" output:&green errorMessage:&parseError] ||
         ![self parseRequiredUnsigned:bString maxValue:255 fieldName:@"--b" output:&blue errorMessage:&parseError] ||
         ![self parseOptionalUnsigned:options[@"--slots"] maxValue:20 fieldName:@"--slots" output:&slots errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--slot"] maxValue:20 fieldName:@"--slot" output:&slot errorMessage:&parseError] ||
         ![self parseOptionalUnsigned:options[@"--save"] maxValue:1 fieldName:@"--save" output:&saveValue errorMessage:&parseError]) {
         fprintf(stderr, "%s\n", parseError.UTF8String);
         return 1;
@@ -1537,6 +1539,10 @@
 
     if (slots == 0) {
         fprintf(stderr, "--slots must be at least 1.\n");
+        return 1;
+    }
+    if (slot > 0 && slots != 20) {
+        fprintf(stderr, "--slot cannot be combined with --slots.\n");
         return 1;
     }
 
@@ -1559,14 +1565,17 @@
         return 1;
     }
 
-    NSMutableData *payload = [NSMutableData dataWithLength:2 + (3 * slots)];
+    static const NSUInteger kDirectSlotCount = 20;
+    NSMutableData *payload = [NSMutableData dataWithLength:2 + 4 + (3 * kDirectSlotCount)];
     uint8_t *payloadBytes = (uint8_t *)payload.mutableBytes;
     payloadBytes[0] = 0x06;
     payloadBytes[1] = 0x02;
-    for (NSUInteger index = 0; index < slots; ++index) {
-        payloadBytes[2 + (3 * index) + 0] = (uint8_t)red;
-        payloadBytes[2 + (3 * index) + 1] = (uint8_t)green;
-        payloadBytes[2 + (3 * index) + 2] = (uint8_t)blue;
+    NSUInteger startOffset = 6;
+    for (NSUInteger index = 0; index < kDirectSlotCount; ++index) {
+        BOOL shouldSet = (slot > 0) ? ((index + 1) == slot) : (index < slots);
+        payloadBytes[startOffset + (3 * index) + 0] = shouldSet ? (uint8_t)red : 0x00;
+        payloadBytes[startOffset + (3 * index) + 1] = shouldSet ? (uint8_t)green : 0x00;
+        payloadBytes[startOffset + (3 * index) + 2] = shouldSet ? (uint8_t)blue : 0x00;
     }
 
     NSError *writeError = nil;
@@ -1588,6 +1597,17 @@
             fprintf(stderr, "t50 color-direct save error: %s\n", saveError.localizedDescription.UTF8String);
             return 1;
         }
+    }
+
+    if (slot > 0) {
+        printf("t50 color-direct ok r=%lu g=%lu b=%lu slot=%lu save=%lu strategy=%s\n",
+               (unsigned long)red,
+               (unsigned long)green,
+               (unsigned long)blue,
+               (unsigned long)slot,
+               (unsigned long)saveValue,
+               strategyOption.UTF8String);
+        return 0;
     }
 
     printf("t50 color-direct ok r=%lu g=%lu b=%lu slots=%lu save=%lu strategy=%s\n",

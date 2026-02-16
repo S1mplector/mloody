@@ -28,6 +28,7 @@ ctest --test-dir build --output-on-failure
 ./build/mloody t50 backlight-get
 ./build/mloody t50 backlight-set --level 2
 ./build/mloody t50 color-direct --r 255 --g 0 --b 0 --save 1 --strategy capture-v2
+./build/mloody t50 color-direct --r 255 --g 0 --b 0 --slot 2 --save 0
 ./build/mloody t50 core-get
 ./build/mloody t50 core-state
 ./build/mloody t50 core-set --core 2 --save 1 --strategy capture-v2
@@ -74,6 +75,7 @@ Available tools:
 ./build/mloody t50 polling-probe --opcode 0x21 --hz 1000
 ./build/mloody t50 lod-probe --opcode 0x22 --lod 2
 ./build/mloody t50 color-direct --r 255 --g 0 --b 0 --slots 20 --save 1 --strategy capture-v2
+./build/mloody t50 color-direct --r 255 --g 0 --b 0 --slot 2 --save 0
 ./build/mloody t50 color-probe --opcode 0x13 --r 255 --g 0 --b 0
 ./build/mloody t50 core-get
 ./build/mloody t50 core-state
