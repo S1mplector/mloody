@@ -626,14 +626,24 @@
 
     if (tokens.count > 1) {
         for (NSString *token in tokens) {
-            NSUInteger value = 0;
             NSString *normalized = token;
             if ([normalized hasPrefix:@"0x"] || [normalized hasPrefix:@"0X"]) {
                 normalized = [normalized substringFromIndex:2];
-                normalized = [@"0x" stringByAppendingString:normalized];
             }
 
-            if (![self parseRequiredUnsigned:normalized maxValue:255 fieldName:@"--data" output:&value errorMessage:errorMessage]) {
+            if (normalized.length == 0 || normalized.length > 2) {
+                if (errorMessage != nil) {
+                    *errorMessage = [NSString stringWithFormat:@"Invalid hex byte token '%@' in --data.", token];
+                }
+                return nil;
+            }
+
+            unsigned value = 0;
+            NSScanner *scanner = [NSScanner scannerWithString:normalized];
+            if (![scanner scanHexInt:&value] || !scanner.isAtEnd) {
+                if (errorMessage != nil) {
+                    *errorMessage = [NSString stringWithFormat:@"Invalid hex byte token '%@' in --data.", token];
+                }
                 return nil;
             }
 

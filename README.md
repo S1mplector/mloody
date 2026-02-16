@@ -53,6 +53,8 @@ Selectors can be added to `apply`, `feature-set`, and `feature-get`:
 ./build/mloody feature-get --report-id 0x02 --length 32 --vid 0x09da --model T50
 ```
 
+For `feature-set`, payload bytes are hex and can be written as `1122ff`, `11 22 ff`, or `0x11 0x22 0xff`.
+
 ## Notes for Real Driver Work
 
 - Modern macOS driver development favors DriverKit/system extensions over legacy kernel extensions.
