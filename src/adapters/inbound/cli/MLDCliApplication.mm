@@ -501,8 +501,8 @@
     printf("  t50 polling-probe --opcode <n> --hz <n> [--flag <n>] [--offset <n>] [selectors]\n");
     printf("  t50 lod-probe --opcode <n> --lod <n> [--flag <n>] [--offset <n>] [selectors]\n");
     printf("  t50 color-mode --mode <open|effect|discard> [selectors]\n");
-    printf("  t50 color-direct --r <n> --g <n> --b <n> [--slots <1..20>] [--slot <1..20>] [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2>] [selectors]\n");
-    printf("  t50 color-zone --zone <logo|wheel|rear|all> --r <n> --g <n> --b <n> [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2>] [selectors]\n");
+    printf("  t50 color-direct --r <n> --g <n> --b <n> [--slots <1..20>] [--slot <1..20>] [--frames <1..120>] [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2>] [selectors]\n");
+    printf("  t50 color-zone --zone <logo|wheel|rear|all> --r <n> --g <n> --b <n> [--frames <1..120>] [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2>] [selectors]\n");
     printf("  t50 color-probe --opcode <n> --r <n> --g <n> --b <n> [--flag <n>] [--offset <n>] [selectors]\n");
     printf("\n");
     printf("selectors: --vid --pid --serial --model\n");
@@ -1601,7 +1601,7 @@
     }
 
     NSSet<NSString *> *allowed = [NSSet setWithArray:@[
-        @"--r", @"--g", @"--b", @"--slots", @"--slot", @"--prepare", @"--save", @"--strategy", @"--vid", @"--pid", @"--serial", @"--model"
+        @"--r", @"--g", @"--b", @"--slots", @"--slot", @"--frames", @"--prepare", @"--save", @"--strategy", @"--vid", @"--pid", @"--serial", @"--model"
     ]];
     if (![self validateAllowedOptions:allowed options:options errorMessage:&parseError]) {
         fprintf(stderr, "%s\n", parseError.UTF8String);
@@ -1621,13 +1621,15 @@
     NSUInteger blue = 0;
     NSUInteger slots = 20;
     NSUInteger slot = 0;
+    NSUInteger frames = 1;
     NSUInteger prepareValue = 0;
-    NSUInteger saveValue = 1;
+    NSUInteger saveValue = 0;
     if (![self parseRequiredUnsigned:rString maxValue:255 fieldName:@"--r" output:&red errorMessage:&parseError] ||
         ![self parseRequiredUnsigned:gString maxValue:255 fieldName:@"--g" output:&green errorMessage:&parseError] ||
         ![self parseRequiredUnsigned:bString maxValue:255 fieldName:@"--b" output:&blue errorMessage:&parseError] ||
         ![self parseOptionalUnsigned:options[@"--slots"] maxValue:20 fieldName:@"--slots" output:&slots errorMessage:&parseError] ||
         ![self parseOptionalUnsigned:options[@"--slot"] maxValue:20 fieldName:@"--slot" output:&slot errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--frames"] maxValue:120 fieldName:@"--frames" output:&frames errorMessage:&parseError] ||
         ![self parseOptionalUnsigned:options[@"--prepare"] maxValue:1 fieldName:@"--prepare" output:&prepareValue errorMessage:&parseError] ||
         ![self parseOptionalUnsigned:options[@"--save"] maxValue:1 fieldName:@"--save" output:&saveValue errorMessage:&parseError]) {
         fprintf(stderr, "%s\n", parseError.UTF8String);
@@ -1643,8 +1645,8 @@
         return 1;
     }
 
-    NSString *strategyOption = options[@"--strategy"] ?: @"capture-v2";
-    MLDT50SaveStrategy strategy = MLDT50SaveStrategyCaptureV2;
+    NSString *strategyOption = options[@"--strategy"] ?: @"quick";
+    MLDT50SaveStrategy strategy = MLDT50SaveStrategyQuick;
     if ([strategyOption isEqualToString:@"quick"]) {
         strategy = MLDT50SaveStrategyQuick;
     } else if ([strategyOption isEqualToString:@"capture-v1"]) {
@@ -1684,16 +1686,22 @@
         payloadBytes[startOffset + (3 * index) + 2] = shouldSet ? (uint8_t)blue : 0x00;
     }
 
-    NSError *writeError = nil;
-    NSData *response = [self.t50ExchangeCommandUseCase executeForDevice:target
-                                                                  opcode:0x03
-                                                               writeFlag:0x00
-                                                           payloadOffset:2
-                                                                 payload:payload
-                                                                   error:&writeError];
-    if (response == nil) {
-        fprintf(stderr, "t50 color-direct write error: %s\n", writeError.localizedDescription.UTF8String);
-        return 1;
+    for (NSUInteger frameIndex = 0; frameIndex < frames; ++frameIndex) {
+        NSError *writeError = nil;
+        NSData *response = [self.t50ExchangeCommandUseCase executeForDevice:target
+                                                                      opcode:0x03
+                                                                   writeFlag:0x00
+                                                               payloadOffset:2
+                                                                     payload:payload
+                                                                       error:&writeError];
+        if (response == nil) {
+            fprintf(stderr,
+                    "t50 color-direct write error at frame %lu/%lu: %s\n",
+                    (unsigned long)(frameIndex + 1),
+                    (unsigned long)frames,
+                    writeError.localizedDescription.UTF8String);
+            return 1;
+        }
     }
 
     if (saveValue == 1) {
@@ -1706,22 +1714,24 @@
     }
 
     if (slot > 0) {
-        printf("t50 color-direct ok r=%lu g=%lu b=%lu slot=%lu prepare=%lu save=%lu strategy=%s\n",
+        printf("t50 color-direct ok r=%lu g=%lu b=%lu slot=%lu frames=%lu prepare=%lu save=%lu strategy=%s\n",
                (unsigned long)red,
                (unsigned long)green,
                (unsigned long)blue,
                (unsigned long)slot,
+               (unsigned long)frames,
                (unsigned long)prepareValue,
                (unsigned long)saveValue,
                strategyOption.UTF8String);
         return 0;
     }
 
-    printf("t50 color-direct ok r=%lu g=%lu b=%lu slots=%lu prepare=%lu save=%lu strategy=%s\n",
+    printf("t50 color-direct ok r=%lu g=%lu b=%lu slots=%lu frames=%lu prepare=%lu save=%lu strategy=%s\n",
            (unsigned long)red,
            (unsigned long)green,
            (unsigned long)blue,
            (unsigned long)slots,
+           (unsigned long)frames,
            (unsigned long)prepareValue,
            (unsigned long)saveValue,
            strategyOption.UTF8String);
@@ -1737,7 +1747,7 @@
     }
 
     NSSet<NSString *> *allowed = [NSSet setWithArray:@[
-        @"--zone", @"--r", @"--g", @"--b", @"--prepare", @"--save", @"--strategy", @"--vid", @"--pid", @"--serial", @"--model"
+        @"--zone", @"--r", @"--g", @"--b", @"--frames", @"--prepare", @"--save", @"--strategy", @"--vid", @"--pid", @"--serial", @"--model"
     ]];
     if (![self validateAllowedOptions:allowed options:options errorMessage:&parseError]) {
         fprintf(stderr, "%s\n", parseError.UTF8String);
@@ -1756,11 +1766,13 @@
     NSUInteger red = 0;
     NSUInteger green = 0;
     NSUInteger blue = 0;
+    NSUInteger frames = 1;
     NSUInteger prepareValue = 0;
     NSUInteger saveValue = 0;
     if (![self parseRequiredUnsigned:rString maxValue:255 fieldName:@"--r" output:&red errorMessage:&parseError] ||
         ![self parseRequiredUnsigned:gString maxValue:255 fieldName:@"--g" output:&green errorMessage:&parseError] ||
         ![self parseRequiredUnsigned:bString maxValue:255 fieldName:@"--b" output:&blue errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--frames"] maxValue:120 fieldName:@"--frames" output:&frames errorMessage:&parseError] ||
         ![self parseOptionalUnsigned:options[@"--prepare"] maxValue:1 fieldName:@"--prepare" output:&prepareValue errorMessage:&parseError] ||
         ![self parseOptionalUnsigned:options[@"--save"] maxValue:1 fieldName:@"--save" output:&saveValue errorMessage:&parseError]) {
         fprintf(stderr, "%s\n", parseError.UTF8String);
@@ -1774,13 +1786,15 @@
 
     NSMutableArray<NSString *> *selectedSlots = [NSMutableArray array];
     if ([normalizedZone isEqualToString:@"logo"]) {
-        slotEnabled[7] = YES;  // Slot 8 from OpenRGB W70/W90 map.
-        [selectedSlots addObject:@"8"];
-    } else if ([normalizedZone isEqualToString:@"wheel"]) {
-        slotEnabled[14] = YES; // Slot 15 from OpenRGB W70/W90 map.
+        slotEnabled[14] = YES;  // T50/W70 hypothesis: rear logo channel sits on slot 15.
         [selectedSlots addObject:@"15"];
+    } else if ([normalizedZone isEqualToString:@"wheel"]) {
+        slotEnabled[6] = YES; // T50/W70 hypothesis: wheel pair mapped to slots 7/8.
+        slotEnabled[7] = YES;
+        [selectedSlots addObject:@"7"];
+        [selectedSlots addObject:@"8"];
     } else if ([normalizedZone isEqualToString:@"rear"]) {
-        const NSUInteger rearSlots[] = {1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14};
+        const NSUInteger rearSlots[] = {1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14};
         const NSUInteger rearSlotCount = sizeof(rearSlots) / sizeof(rearSlots[0]);
         for (NSUInteger index = 0; index < rearSlotCount; ++index) {
             NSUInteger slot = rearSlots[index];
@@ -1797,8 +1811,8 @@
         return 1;
     }
 
-    NSString *strategyOption = options[@"--strategy"] ?: @"capture-v2";
-    MLDT50SaveStrategy strategy = MLDT50SaveStrategyCaptureV2;
+    NSString *strategyOption = options[@"--strategy"] ?: @"quick";
+    MLDT50SaveStrategy strategy = MLDT50SaveStrategyQuick;
     if ([strategyOption isEqualToString:@"quick"]) {
         strategy = MLDT50SaveStrategyQuick;
     } else if ([strategyOption isEqualToString:@"capture-v1"]) {
@@ -1837,16 +1851,22 @@
         payloadBytes[startOffset + (3 * index) + 2] = shouldSet ? (uint8_t)blue : 0x00;
     }
 
-    NSError *writeError = nil;
-    NSData *response = [self.t50ExchangeCommandUseCase executeForDevice:target
-                                                                  opcode:0x03
-                                                               writeFlag:0x00
-                                                           payloadOffset:2
-                                                                 payload:payload
-                                                                   error:&writeError];
-    if (response == nil) {
-        fprintf(stderr, "t50 color-zone write error: %s\n", writeError.localizedDescription.UTF8String);
-        return 1;
+    for (NSUInteger frameIndex = 0; frameIndex < frames; ++frameIndex) {
+        NSError *writeError = nil;
+        NSData *response = [self.t50ExchangeCommandUseCase executeForDevice:target
+                                                                      opcode:0x03
+                                                                   writeFlag:0x00
+                                                               payloadOffset:2
+                                                                     payload:payload
+                                                                       error:&writeError];
+        if (response == nil) {
+            fprintf(stderr,
+                    "t50 color-zone write error at frame %lu/%lu: %s\n",
+                    (unsigned long)(frameIndex + 1),
+                    (unsigned long)frames,
+                    writeError.localizedDescription.UTF8String);
+            return 1;
+        }
     }
 
     if (saveValue == 1) {
@@ -1859,12 +1879,13 @@
     }
 
     NSString *slotSummary = [selectedSlots componentsJoinedByString:@","];
-    printf("t50 color-zone ok zone=%s slots=%s r=%lu g=%lu b=%lu prepare=%lu save=%lu strategy=%s\n",
+    printf("t50 color-zone ok zone=%s slots=%s r=%lu g=%lu b=%lu frames=%lu prepare=%lu save=%lu strategy=%s\n",
            normalizedZone.UTF8String,
            slotSummary.UTF8String,
            (unsigned long)red,
            (unsigned long)green,
            (unsigned long)blue,
+           (unsigned long)frames,
            (unsigned long)prepareValue,
            (unsigned long)saveValue,
            strategyOption.UTF8String);
