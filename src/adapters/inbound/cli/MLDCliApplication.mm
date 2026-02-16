@@ -12,6 +12,9 @@
 #include <errno.h>
 #include <stdlib.h>
 
+static const NSUInteger MLDT50DirectColorSlotCount = 21;
+static const NSUInteger MLDT50DirectColorStartOffset = 6;
+
 @interface MLDCliApplication ()
 
 @property(nonatomic, strong) MLDDiscoverSupportedDevicesUseCase *discoverUseCase;
@@ -501,8 +504,9 @@
     printf("  t50 polling-probe --opcode <n> --hz <n> [--flag <n>] [--offset <n>] [selectors]\n");
     printf("  t50 lod-probe --opcode <n> --lod <n> [--flag <n>] [--offset <n>] [selectors]\n");
     printf("  t50 color-mode --mode <open|effect|discard> [selectors]\n");
-    printf("  t50 color-direct --r <n> --g <n> --b <n> [--slots <1..20>] [--slot <1..20>] [--frames <1..120>] [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2>] [selectors]\n");
-    printf("  t50 color-zone --zone <logo|wheel|rear|all> --r <n> --g <n> --b <n> [--frames <1..120>] [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2>] [selectors]\n");
+    printf("  t50 color-direct --r <n> --g <n> --b <n> [--slots <1..21>] [--slot <1..21>] [--frames <1..120>] [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2>] [selectors]\n");
+    printf("  t50 color-zone --zone <logo|wheel|wheel-indicator|rear|all> --r <n> --g <n> --b <n> [--frames <1..120>] [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2>] [selectors]\n");
+    printf("  t50 color-sweep --r <n> --g <n> --b <n> [--from <1..21>] [--to <1..21>] [--delay-ms <n>] [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2>] [selectors]\n");
     printf("  t50 color-probe --opcode <n> --r <n> --g <n> --b <n> [--flag <n>] [--offset <n>] [selectors]\n");
     printf("\n");
     printf("selectors: --vid --pid --serial --model\n");
@@ -567,6 +571,9 @@
     }
     if ([subcommand isEqualToString:@"color-zone"]) {
         return [self runT50ColorZoneWithArguments:subArguments];
+    }
+    if ([subcommand isEqualToString:@"color-sweep"]) {
+        return [self runT50ColorSweepWithArguments:subArguments];
     }
     if ([subcommand isEqualToString:@"color-probe"]) {
         return [self runT50ColorProbeWithArguments:subArguments];
@@ -1619,7 +1626,7 @@
     NSUInteger red = 0;
     NSUInteger green = 0;
     NSUInteger blue = 0;
-    NSUInteger slots = 20;
+    NSUInteger slots = MLDT50DirectColorSlotCount;
     NSUInteger slot = 0;
     NSUInteger frames = 1;
     NSUInteger prepareValue = 0;
@@ -1627,8 +1634,8 @@
     if (![self parseRequiredUnsigned:rString maxValue:255 fieldName:@"--r" output:&red errorMessage:&parseError] ||
         ![self parseRequiredUnsigned:gString maxValue:255 fieldName:@"--g" output:&green errorMessage:&parseError] ||
         ![self parseRequiredUnsigned:bString maxValue:255 fieldName:@"--b" output:&blue errorMessage:&parseError] ||
-        ![self parseOptionalUnsigned:options[@"--slots"] maxValue:20 fieldName:@"--slots" output:&slots errorMessage:&parseError] ||
-        ![self parseOptionalUnsigned:options[@"--slot"] maxValue:20 fieldName:@"--slot" output:&slot errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--slots"] maxValue:MLDT50DirectColorSlotCount fieldName:@"--slots" output:&slots errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--slot"] maxValue:MLDT50DirectColorSlotCount fieldName:@"--slot" output:&slot errorMessage:&parseError] ||
         ![self parseOptionalUnsigned:options[@"--frames"] maxValue:120 fieldName:@"--frames" output:&frames errorMessage:&parseError] ||
         ![self parseOptionalUnsigned:options[@"--prepare"] maxValue:1 fieldName:@"--prepare" output:&prepareValue errorMessage:&parseError] ||
         ![self parseOptionalUnsigned:options[@"--save"] maxValue:1 fieldName:@"--save" output:&saveValue errorMessage:&parseError]) {
@@ -1640,7 +1647,7 @@
         fprintf(stderr, "--slots must be at least 1.\n");
         return 1;
     }
-    if (slot > 0 && slots != 20) {
+    if (slot > 0 && slots != MLDT50DirectColorSlotCount) {
         fprintf(stderr, "--slot cannot be combined with --slots.\n");
         return 1;
     }
@@ -1673,17 +1680,15 @@
         }
     }
 
-    static const NSUInteger kDirectSlotCount = 20;
-    NSMutableData *payload = [NSMutableData dataWithLength:2 + 4 + (3 * kDirectSlotCount)];
+    NSMutableData *payload = [NSMutableData dataWithLength:2 + 4 + (3 * MLDT50DirectColorSlotCount)];
     uint8_t *payloadBytes = (uint8_t *)payload.mutableBytes;
     payloadBytes[0] = 0x06;
     payloadBytes[1] = 0x02;
-    NSUInteger startOffset = 6;
-    for (NSUInteger index = 0; index < kDirectSlotCount; ++index) {
+    for (NSUInteger index = 0; index < MLDT50DirectColorSlotCount; ++index) {
         BOOL shouldSet = (slot > 0) ? ((index + 1) == slot) : (index < slots);
-        payloadBytes[startOffset + (3 * index) + 0] = shouldSet ? (uint8_t)red : 0x00;
-        payloadBytes[startOffset + (3 * index) + 1] = shouldSet ? (uint8_t)green : 0x00;
-        payloadBytes[startOffset + (3 * index) + 2] = shouldSet ? (uint8_t)blue : 0x00;
+        payloadBytes[MLDT50DirectColorStartOffset + (3 * index) + 0] = shouldSet ? (uint8_t)red : 0x00;
+        payloadBytes[MLDT50DirectColorStartOffset + (3 * index) + 1] = shouldSet ? (uint8_t)green : 0x00;
+        payloadBytes[MLDT50DirectColorStartOffset + (3 * index) + 2] = shouldSet ? (uint8_t)blue : 0x00;
     }
 
     for (NSUInteger frameIndex = 0; frameIndex < frames; ++frameIndex) {
@@ -1780,8 +1785,7 @@
     }
 
     NSString *normalizedZone = zoneString.lowercaseString;
-    static const NSUInteger kDirectSlotCount = 20;
-    BOOL slotEnabled[kDirectSlotCount];
+    BOOL slotEnabled[MLDT50DirectColorSlotCount];
     memset(slotEnabled, 0, sizeof(slotEnabled));
 
     NSMutableArray<NSString *> *selectedSlots = [NSMutableArray array];
@@ -1789,12 +1793,17 @@
         slotEnabled[14] = YES;  // T50/W70 hypothesis: rear logo channel sits on slot 15.
         [selectedSlots addObject:@"15"];
     } else if ([normalizedZone isEqualToString:@"wheel"]) {
-        slotEnabled[6] = YES; // T50/W70 hypothesis: wheel pair mapped to slots 7/8.
+        slotEnabled[6] = YES; // T50 hypothesis: wheel is tied to slots 7/8 and indicator slot 21.
         slotEnabled[7] = YES;
+        slotEnabled[20] = YES;
         [selectedSlots addObject:@"7"];
         [selectedSlots addObject:@"8"];
+        [selectedSlots addObject:@"21"];
+    } else if ([normalizedZone isEqualToString:@"wheel-indicator"]) {
+        slotEnabled[20] = YES;
+        [selectedSlots addObject:@"21"];
     } else if ([normalizedZone isEqualToString:@"rear"]) {
-        const NSUInteger rearSlots[] = {1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14};
+        const NSUInteger rearSlots[] = {1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 20};
         const NSUInteger rearSlotCount = sizeof(rearSlots) / sizeof(rearSlots[0]);
         for (NSUInteger index = 0; index < rearSlotCount; ++index) {
             NSUInteger slot = rearSlots[index];
@@ -1802,12 +1811,12 @@
             [selectedSlots addObject:[NSString stringWithFormat:@"%lu", (unsigned long)slot]];
         }
     } else if ([normalizedZone isEqualToString:@"all"]) {
-        for (NSUInteger slot = 1; slot <= 15; ++slot) {
+        for (NSUInteger slot = 1; slot <= MLDT50DirectColorSlotCount; ++slot) {
             slotEnabled[slot - 1] = YES;
             [selectedSlots addObject:[NSString stringWithFormat:@"%lu", (unsigned long)slot]];
         }
     } else {
-        fprintf(stderr, "t50 color-zone --zone must be one of: logo, wheel, rear, all.\n");
+        fprintf(stderr, "t50 color-zone --zone must be one of: logo, wheel, wheel-indicator, rear, all.\n");
         return 1;
     }
 
@@ -1839,16 +1848,15 @@
         }
     }
 
-    NSMutableData *payload = [NSMutableData dataWithLength:2 + 4 + (3 * kDirectSlotCount)];
+    NSMutableData *payload = [NSMutableData dataWithLength:2 + 4 + (3 * MLDT50DirectColorSlotCount)];
     uint8_t *payloadBytes = (uint8_t *)payload.mutableBytes;
     payloadBytes[0] = 0x06;
     payloadBytes[1] = 0x02;
-    NSUInteger startOffset = 6;
-    for (NSUInteger index = 0; index < kDirectSlotCount; ++index) {
+    for (NSUInteger index = 0; index < MLDT50DirectColorSlotCount; ++index) {
         BOOL shouldSet = slotEnabled[index];
-        payloadBytes[startOffset + (3 * index) + 0] = shouldSet ? (uint8_t)red : 0x00;
-        payloadBytes[startOffset + (3 * index) + 1] = shouldSet ? (uint8_t)green : 0x00;
-        payloadBytes[startOffset + (3 * index) + 2] = shouldSet ? (uint8_t)blue : 0x00;
+        payloadBytes[MLDT50DirectColorStartOffset + (3 * index) + 0] = shouldSet ? (uint8_t)red : 0x00;
+        payloadBytes[MLDT50DirectColorStartOffset + (3 * index) + 1] = shouldSet ? (uint8_t)green : 0x00;
+        payloadBytes[MLDT50DirectColorStartOffset + (3 * index) + 2] = shouldSet ? (uint8_t)blue : 0x00;
     }
 
     for (NSUInteger frameIndex = 0; frameIndex < frames; ++frameIndex) {
@@ -1886,6 +1894,136 @@
            (unsigned long)green,
            (unsigned long)blue,
            (unsigned long)frames,
+           (unsigned long)prepareValue,
+           (unsigned long)saveValue,
+           strategyOption.UTF8String);
+    return 0;
+}
+
+- (int)runT50ColorSweepWithArguments:(NSArray<NSString *> *)arguments {
+    NSString *parseError = nil;
+    NSDictionary<NSString *, NSString *> *options = [self parseOptionMapFromArguments:arguments errorMessage:&parseError];
+    if (options == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSSet<NSString *> *allowed = [NSSet setWithArray:@[
+        @"--r", @"--g", @"--b", @"--from", @"--to", @"--delay-ms", @"--prepare", @"--save", @"--strategy", @"--vid", @"--pid", @"--serial", @"--model"
+    ]];
+    if (![self validateAllowedOptions:allowed options:options errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSString *rString = options[@"--r"];
+    NSString *gString = options[@"--g"];
+    NSString *bString = options[@"--b"];
+    if (rString == nil || gString == nil || bString == nil) {
+        fprintf(stderr, "t50 color-sweep requires --r, --g, and --b.\n");
+        return 1;
+    }
+
+    NSUInteger red = 0;
+    NSUInteger green = 0;
+    NSUInteger blue = 0;
+    NSUInteger fromSlot = 1;
+    NSUInteger toSlot = MLDT50DirectColorSlotCount;
+    NSUInteger delayMilliseconds = 350;
+    NSUInteger prepareValue = 0;
+    NSUInteger saveValue = 0;
+    if (![self parseRequiredUnsigned:rString maxValue:255 fieldName:@"--r" output:&red errorMessage:&parseError] ||
+        ![self parseRequiredUnsigned:gString maxValue:255 fieldName:@"--g" output:&green errorMessage:&parseError] ||
+        ![self parseRequiredUnsigned:bString maxValue:255 fieldName:@"--b" output:&blue errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--from"] maxValue:MLDT50DirectColorSlotCount fieldName:@"--from" output:&fromSlot errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--to"] maxValue:MLDT50DirectColorSlotCount fieldName:@"--to" output:&toSlot errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--delay-ms"] maxValue:5000 fieldName:@"--delay-ms" output:&delayMilliseconds errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--prepare"] maxValue:1 fieldName:@"--prepare" output:&prepareValue errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--save"] maxValue:1 fieldName:@"--save" output:&saveValue errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+    if (fromSlot == 0 || toSlot == 0 || fromSlot > toSlot) {
+        fprintf(stderr, "t50 color-sweep requires 1 <= --from <= --to <= %lu.\n", (unsigned long)MLDT50DirectColorSlotCount);
+        return 1;
+    }
+
+    NSString *strategyOption = options[@"--strategy"] ?: @"quick";
+    MLDT50SaveStrategy strategy = MLDT50SaveStrategyQuick;
+    if ([strategyOption isEqualToString:@"quick"]) {
+        strategy = MLDT50SaveStrategyQuick;
+    } else if ([strategyOption isEqualToString:@"capture-v1"]) {
+        strategy = MLDT50SaveStrategyCaptureV1;
+    } else if ([strategyOption isEqualToString:@"capture-v2"]) {
+        strategy = MLDT50SaveStrategyCaptureV2;
+    } else {
+        fprintf(stderr, "t50 color-sweep --strategy must be one of: quick, capture-v1, capture-v2.\n");
+        return 1;
+    }
+
+    MLDMouseDevice *target = [self selectT50DeviceWithOptions:options errorMessage:&parseError];
+    if (target == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    if (prepareValue == 1) {
+        NSError *prepareError = nil;
+        BOOL prepared = [self prepareT50ColorWriteSessionOnDevice:target error:&prepareError];
+        if (!prepared) {
+            fprintf(stderr, "t50 color-sweep prepare error: %s\n", prepareError.localizedDescription.UTF8String);
+            return 1;
+        }
+    }
+
+    for (NSUInteger slot = fromSlot; slot <= toSlot; ++slot) {
+        NSMutableData *payload = [NSMutableData dataWithLength:2 + 4 + (3 * MLDT50DirectColorSlotCount)];
+        uint8_t *payloadBytes = (uint8_t *)payload.mutableBytes;
+        payloadBytes[0] = 0x06;
+        payloadBytes[1] = 0x02;
+        for (NSUInteger index = 0; index < MLDT50DirectColorSlotCount; ++index) {
+            BOOL shouldSet = (index + 1) == slot;
+            payloadBytes[MLDT50DirectColorStartOffset + (3 * index) + 0] = shouldSet ? (uint8_t)red : 0x00;
+            payloadBytes[MLDT50DirectColorStartOffset + (3 * index) + 1] = shouldSet ? (uint8_t)green : 0x00;
+            payloadBytes[MLDT50DirectColorStartOffset + (3 * index) + 2] = shouldSet ? (uint8_t)blue : 0x00;
+        }
+
+        NSError *writeError = nil;
+        NSData *response = [self.t50ExchangeCommandUseCase executeForDevice:target
+                                                                      opcode:0x03
+                                                                   writeFlag:0x00
+                                                               payloadOffset:2
+                                                                     payload:payload
+                                                                       error:&writeError];
+        if (response == nil) {
+            fprintf(stderr, "t50 color-sweep write error on slot %lu: %s\n",
+                    (unsigned long)slot,
+                    writeError.localizedDescription.UTF8String);
+            return 1;
+        }
+
+        printf("t50 color-sweep slot=%lu/%lu\n", (unsigned long)slot, (unsigned long)toSlot);
+        if (delayMilliseconds > 0 && slot < toSlot) {
+            [NSThread sleepForTimeInterval:((NSTimeInterval)delayMilliseconds / 1000.0)];
+        }
+    }
+
+    if (saveValue == 1) {
+        NSError *saveError = nil;
+        BOOL saved = [self.t50ExchangeCommandUseCase saveSettingsToDevice:target strategy:strategy error:&saveError];
+        if (!saved) {
+            fprintf(stderr, "t50 color-sweep save error: %s\n", saveError.localizedDescription.UTF8String);
+            return 1;
+        }
+    }
+
+    printf("t50 color-sweep done range=%lu..%lu r=%lu g=%lu b=%lu delay-ms=%lu prepare=%lu save=%lu strategy=%s\n",
+           (unsigned long)fromSlot,
+           (unsigned long)toSlot,
+           (unsigned long)red,
+           (unsigned long)green,
+           (unsigned long)blue,
+           (unsigned long)delayMilliseconds,
            (unsigned long)prepareValue,
            (unsigned long)saveValue,
            strategyOption.UTF8String);

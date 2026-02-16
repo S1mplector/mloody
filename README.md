@@ -32,6 +32,7 @@ ctest --test-dir build --output-on-failure
 ./build/mloody t50 color-direct --r 255 --g 0 --b 0 --frames 60 --save 0
 ./build/mloody t50 color-direct --r 255 --g 0 --b 0 --slot 2 --save 0
 ./build/mloody t50 color-zone --zone logo --r 255 --g 0 --b 0 --save 0
+./build/mloody t50 color-sweep --r 255 --g 255 --b 0 --from 1 --to 21 --delay-ms 300
 ./build/mloody t50 core-get
 ./build/mloody t50 core-state
 ./build/mloody t50 core-set --core 2 --save 1 --strategy capture-v2
@@ -79,9 +80,11 @@ Available tools:
 ./build/mloody t50 lod-probe --opcode 0x22 --lod 2
 ./build/mloody t50 color-mode --mode open
 ./build/mloody t50 color-mode --mode effect
-./build/mloody t50 color-direct --r 255 --g 0 --b 0 --slots 20 --frames 60 --save 0
+./build/mloody t50 color-direct --r 255 --g 0 --b 0 --slots 21 --frames 60 --save 0
 ./build/mloody t50 color-direct --r 255 --g 0 --b 0 --slot 2 --save 0
 ./build/mloody t50 color-zone --zone wheel --r 0 --g 255 --b 0 --save 0
+./build/mloody t50 color-zone --zone wheel-indicator --r 255 --g 255 --b 0 --save 0
+./build/mloody t50 color-sweep --r 255 --g 255 --b 0 --from 1 --to 21 --delay-ms 300
 ./build/mloody t50 color-probe --opcode 0x13 --r 255 --g 0 --b 0
 ./build/mloody t50 core-get
 ./build/mloody t50 core-state
@@ -92,10 +95,12 @@ Available tools:
 `dpi-probe`/`polling-probe`/`lod-probe`/`color-probe` are mapping helpers; they are intentionally explicit about opcode so you can test and confirm behavior on your own device before we lock in stable named mappings.
 `color-mode` sends captured menu/mode transitions (`open`, `effect`, `discard`) over `opcode 0x03`. (`constant` is kept as a compatibility alias for `effect`.)
 `color-direct`/`color-zone` now default to safer live-probe behavior: `--prepare 0`, `--save 0`, `--strategy quick`, and `--frames 1`.
+`color-direct` currently targets a 21-slot direct RGB frame hypothesis for T50 packets.
+`color-sweep` writes one slot at a time and is useful for discovering which physical LED channel maps to each slot on your exact hardware.
 Use `--frames <n>` (for example `--frames 60`) to overwrite multiple animation frames with the same RGB payload when a single write only causes transient color flashes.
 Use `--prepare 1` to run the captured preamble (`open` + `0x00 0x02`) before RGB payload writes while probing.
-`color-zone` is a safer named wrapper around `color-direct` for common targets (`logo`, `wheel`, `rear`, `all`) and defaults to `--save 0` during RE.
-Current mapping hypothesis for T50/W70-style packets: `logo=slot 15`, `wheel=slots 7,8`, `rear=slots 1-6,9-14`, `all=slots 1-15`.
+`color-zone` is a safer named wrapper around `color-direct` for common targets (`logo`, `wheel`, `wheel-indicator`, `rear`, `all`) and defaults to `--save 0` during RE.
+Current mapping hypothesis for T50 packets: `logo=slot 15`, `wheel=slots 7,8,21`, `wheel-indicator=slot 21`, `rear=slots 1-6,9-14,16-20`, `all=slots 1-21`.
 `core-get` decodes from `opcode 0x1f` (`word @ payload[2..3]`, core = `(word & 0x3) + 1`), and `core-state` prints raw decode fields for RE.
 `core-set` remains a candidate mapping (`write opcode 0x0c payload 06 80 <core>`) and should still be validated on hardware.
 `t50 save` is an experimental persistence helper with strategies `quick`, `capture-v1`, and `capture-v2` (expanded pre/post transaction envelope from capture traces). Prefer `quick` during live color testing, as `capture-v2` can trigger temporary LED mode transitions.
