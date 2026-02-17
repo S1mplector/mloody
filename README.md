@@ -1,6 +1,6 @@
 # mloodyt50-driver
 
-`mloodyt50-driver` is a Bloody T50 mouse (LK) user-space HID control tool for macOS.
+`mloodyt50-driver` is a Bloody T50 mouse (LK) user-space (IOHID) control tool for macOS.
 Just for clarification, as it is not a kernel extension, it is not a "driver" in the traditional sense. 
 
 > Upon request, I can reverse engineer other Bloody mice and make macOS drivers as well. Contact me on mehmetogluilgaz07@gmail.com. I decided to make this driver purely out of the reason that the Bloody T50 is the only mouse I own, and I don't want to pay for other mice. 
