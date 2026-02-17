@@ -19,6 +19,8 @@ typedef NS_ERROR_ENUM(MLDT50ControlErrorDomain, MLDT50ControlErrorCode) {
     MLDT50ControlErrorCodeUnsupportedSaveStrategy = 7,
     MLDT50ControlErrorCodeInvalidCoreSlot = 8,
     MLDT50ControlErrorCodeInvalidDPIStepAction = 9,
+    MLDT50ControlErrorCodeInvalidFlashCount = 10,
+    MLDT50ControlErrorCodeInvalidFlashPayloadLength = 11,
 };
 
 typedef NS_ENUM(NSUInteger, MLDT50SaveStrategy) {
@@ -88,6 +90,26 @@ typedef NS_ENUM(NSUInteger, MLDT50DPIStepAction) {
                         commit:(BOOL)commit
                       onDevice:(MLDMouseDevice *)device
                          error:(NSError **)error;
+
+- (nullable NSData *)readFlashBytes8FromAddress:(uint16_t)address
+                                       onDevice:(MLDMouseDevice *)device
+                                          error:(NSError **)error;
+
+- (nullable NSData *)readFlashDWordsFromAddress:(uint32_t)address
+                                          count:(uint8_t)count
+                                       onDevice:(MLDMouseDevice *)device
+                                          error:(NSError **)error;
+
+- (BOOL)writeFlashWordsToAddress:(uint16_t)address
+                        wordData:(NSData *)wordData
+                      verifyMode:(BOOL)verifyMode
+                        onDevice:(MLDMouseDevice *)device
+                           error:(NSError **)error;
+
+- (BOOL)writeFlashDWordsToAddress:(uint32_t)address
+                        dwordData:(NSData *)dwordData
+                         onDevice:(MLDMouseDevice *)device
+                            error:(NSError **)error;
 
 - (BOOL)saveSettingsToDevice:(MLDMouseDevice *)device
                     strategy:(MLDT50SaveStrategy)strategy

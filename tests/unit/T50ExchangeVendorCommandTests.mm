@@ -403,6 +403,209 @@ int main(void) {
             return 1;
         }
 
+        MLDRecordingFeatureTransportSpy *flashSpy = [[MLDRecordingFeatureTransportSpy alloc] init];
+        MLDT50ExchangeVendorCommandUseCase *flashUseCase =
+            [[MLDT50ExchangeVendorCommandUseCase alloc] initWithFeatureTransportPort:flashSpy];
+
+        NSMutableData *flashRead8Response = [NSMutableData dataWithLength:[MLDT50ExchangeVendorCommandUseCase packetLength]];
+        uint8_t *flashRead8Bytes = (uint8_t *)flashRead8Response.mutableBytes;
+        flashRead8Bytes[0] = 0x07;
+        flashRead8Bytes[1] = 0x2f;
+        flashRead8Bytes[8] = 0xa4;
+        flashRead8Bytes[9] = 0xa4;
+        flashRead8Bytes[10] = 0xff;
+        flashRead8Bytes[11] = 0xff;
+        flashRead8Bytes[12] = 0x31;
+        flashRead8Bytes[13] = 0x23;
+        flashRead8Bytes[14] = 0x1e;
+        flashRead8Bytes[15] = 0xf2;
+        flashSpy.forcedReadPayload = flashRead8Response;
+
+        NSError *flashRead8Error = nil;
+        NSData *flashRead8 = [flashUseCase readFlashBytes8FromAddress:0x1c00 onDevice:device error:&flashRead8Error];
+        if (!Expect(flashRead8 != nil, @"Expected flash read8 to return 8 bytes.")) {
+            return 1;
+        }
+        if (!Expect(flashRead8Error == nil, @"Expected no error for valid flash read8.")) {
+            return 1;
+        }
+        if (!Expect(flashRead8.length == 8, @"Expected flash read8 length to be 8.")) {
+            return 1;
+        }
+        const uint8_t *flashRead8Payload = (const uint8_t *)flashRead8.bytes;
+        if (!Expect(flashRead8Payload[0] == 0xa4 && flashRead8Payload[7] == 0xf2,
+                    @"Expected flash read8 payload bytes to match forced response.")) {
+            return 1;
+        }
+        const uint8_t *flashRead8Request = (const uint8_t *)flashSpy.writes.lastObject.bytes;
+        if (!Expect(flashRead8Request[1] == 0x2f && flashRead8Request[2] == 0x00 &&
+                        flashRead8Request[3] == 0x1c && flashRead8Request[4] == 0x00,
+                    @"Expected flash read8 request packet to encode mode=0 and address 0x1c00.")) {
+            return 1;
+        }
+
+        [flashSpy.writes removeAllObjects];
+        NSMutableData *flashRead32Response = [NSMutableData dataWithLength:[MLDT50ExchangeVendorCommandUseCase packetLength]];
+        uint8_t *flashRead32Bytes = (uint8_t *)flashRead32Response.mutableBytes;
+        flashRead32Bytes[0] = 0x07;
+        flashRead32Bytes[1] = 0x2f;
+        flashRead32Bytes[32] = 0x78;
+        flashRead32Bytes[33] = 0x56;
+        flashRead32Bytes[34] = 0x34;
+        flashRead32Bytes[35] = 0x12;
+        flashRead32Bytes[36] = 0xf0;
+        flashRead32Bytes[37] = 0xde;
+        flashRead32Bytes[38] = 0xbc;
+        flashRead32Bytes[39] = 0x9a;
+        flashSpy.forcedReadPayload = flashRead32Response;
+
+        NSError *flashRead32Error = nil;
+        NSData *flashRead32 = [flashUseCase readFlashDWordsFromAddress:0x00002e00
+                                                                 count:2
+                                                              onDevice:device
+                                                                 error:&flashRead32Error];
+        if (!Expect(flashRead32 != nil, @"Expected flash read32 to return dword bytes.")) {
+            return 1;
+        }
+        if (!Expect(flashRead32Error == nil, @"Expected no error for valid flash read32.")) {
+            return 1;
+        }
+        if (!Expect(flashRead32.length == 8, @"Expected flash read32 count=2 to return 8 bytes.")) {
+            return 1;
+        }
+        const uint8_t *flashRead32Payload = (const uint8_t *)flashRead32.bytes;
+        if (!Expect(flashRead32Payload[0] == 0x78 && flashRead32Payload[7] == 0x9a,
+                    @"Expected flash read32 payload bytes to match forced response.")) {
+            return 1;
+        }
+        const uint8_t *flashRead32Request = (const uint8_t *)flashSpy.writes.lastObject.bytes;
+        if (!Expect(flashRead32Request[1] == 0x2f && flashRead32Request[2] == 0x00 &&
+                        flashRead32Request[24] == 0x02 && flashRead32Request[28] == 0x00 &&
+                        flashRead32Request[29] == 0x2e && flashRead32Request[30] == 0x00 &&
+                        flashRead32Request[31] == 0x00,
+                    @"Expected flash read32 request packet to encode mode=0, count=2, addr=0x00002e00.")) {
+            return 1;
+        }
+
+        [flashSpy.writes removeAllObjects];
+        const uint8_t flashWrite16Payload[] = {0x34, 0x12, 0x78, 0x56};
+        NSError *flashWrite16Error = nil;
+        BOOL flashWrite16OK = [flashUseCase writeFlashWordsToAddress:0x1d00
+                                                            wordData:[NSData dataWithBytes:flashWrite16Payload
+                                                                                     length:sizeof(flashWrite16Payload)]
+                                                          verifyMode:NO
+                                                            onDevice:device
+                                                               error:&flashWrite16Error];
+        if (!Expect(flashWrite16OK, @"Expected flash write16 to succeed with 2 words.")) {
+            return 1;
+        }
+        if (!Expect(flashWrite16Error == nil, @"Expected no error for valid flash write16.")) {
+            return 1;
+        }
+        const uint8_t *flashWrite16Request = (const uint8_t *)flashSpy.writes.lastObject.bytes;
+        if (!Expect(flashWrite16Request[1] == 0x2f && flashWrite16Request[2] == 0x09 &&
+                        flashWrite16Request[3] == 0x1d && flashWrite16Request[4] == 0x00 &&
+                        flashWrite16Request[5] == 0x00 &&
+                        flashWrite16Request[8] == 0x34 && flashWrite16Request[11] == 0x56,
+                    @"Expected flash write16 request packet to encode count/mode/address and word payload.")) {
+            return 1;
+        }
+
+        [flashSpy.writes removeAllObjects];
+        const uint8_t flashWrite16VerifyPayload[] = {0xaa, 0xbb};
+        NSError *flashWrite16VerifyError = nil;
+        BOOL flashWrite16VerifyOK = [flashUseCase writeFlashWordsToAddress:0x1d00
+                                                                  wordData:[NSData dataWithBytes:flashWrite16VerifyPayload
+                                                                                           length:sizeof(flashWrite16VerifyPayload)]
+                                                                verifyMode:YES
+                                                                  onDevice:device
+                                                                     error:&flashWrite16VerifyError];
+        if (!Expect(flashWrite16VerifyOK, @"Expected flash write16 verify-mode packet to succeed.")) {
+            return 1;
+        }
+        if (!Expect(flashWrite16VerifyError == nil, @"Expected no error for valid flash write16 verify-mode.")) {
+            return 1;
+        }
+        const uint8_t *flashWrite16VerifyRequest = (const uint8_t *)flashSpy.writes.lastObject.bytes;
+        if (!Expect(flashWrite16VerifyRequest[5] == 0x80,
+                    @"Expected flash write16 verify-mode to encode 0x80 in byte 5.")) {
+            return 1;
+        }
+
+        [flashSpy.writes removeAllObjects];
+        const uint8_t flashWrite32Payload[] = {0x78, 0x56, 0x34, 0x12, 0xf0, 0xde, 0xbc, 0x9a};
+        NSError *flashWrite32Error = nil;
+        BOOL flashWrite32OK = [flashUseCase writeFlashDWordsToAddress:0x00002e00
+                                                             dwordData:[NSData dataWithBytes:flashWrite32Payload
+                                                                                        length:sizeof(flashWrite32Payload)]
+                                                              onDevice:device
+                                                                 error:&flashWrite32Error];
+        if (!Expect(flashWrite32OK, @"Expected flash write32 to succeed with 2 dwords.")) {
+            return 1;
+        }
+        if (!Expect(flashWrite32Error == nil, @"Expected no error for valid flash write32.")) {
+            return 1;
+        }
+        const uint8_t *flashWrite32Request = (const uint8_t *)flashSpy.writes.lastObject.bytes;
+        if (!Expect(flashWrite32Request[1] == 0x2f && flashWrite32Request[2] == 0x01 &&
+                        flashWrite32Request[24] == 0x02 &&
+                        flashWrite32Request[28] == 0x00 && flashWrite32Request[29] == 0x2e &&
+                        flashWrite32Request[30] == 0x00 && flashWrite32Request[31] == 0x00 &&
+                        flashWrite32Request[32] == 0x78 && flashWrite32Request[39] == 0x9a,
+                    @"Expected flash write32 request packet to encode mode=1, count, addr, and payload.")) {
+            return 1;
+        }
+
+        NSError *invalidFlashReadCountError = nil;
+        NSData *invalidFlashRead = [flashUseCase readFlashDWordsFromAddress:0x00002e00
+                                                                       count:0
+                                                                    onDevice:device
+                                                                       error:&invalidFlashReadCountError];
+        if (!Expect(invalidFlashRead == nil, @"Expected flash read32 with count=0 to fail.")) {
+            return 1;
+        }
+        if (!Expect(invalidFlashReadCountError != nil, @"Expected flash read32 count validation error.")) {
+            return 1;
+        }
+        if (!Expect(invalidFlashReadCountError.code == MLDT50ControlErrorCodeInvalidFlashCount,
+                    @"Expected invalid-flash-count error code for read32 count=0.")) {
+            return 1;
+        }
+
+        NSError *invalidFlashWrite16LengthError = nil;
+        BOOL invalidFlashWrite16 = [flashUseCase writeFlashWordsToAddress:0x1d00
+                                                                 wordData:[NSData dataWithBytes:flashWrite16Payload length:3]
+                                                               verifyMode:NO
+                                                                 onDevice:device
+                                                                    error:&invalidFlashWrite16LengthError];
+        if (!Expect(!invalidFlashWrite16, @"Expected flash write16 with odd byte length to fail.")) {
+            return 1;
+        }
+        if (!Expect(invalidFlashWrite16LengthError != nil, @"Expected flash write16 payload-length validation error.")) {
+            return 1;
+        }
+        if (!Expect(invalidFlashWrite16LengthError.code == MLDT50ControlErrorCodeInvalidFlashPayloadLength,
+                    @"Expected invalid-flash-payload-length code for flash write16 odd byte length.")) {
+            return 1;
+        }
+
+        NSMutableData *tooManyDwords = [NSMutableData dataWithLength:36];
+        NSError *invalidFlashWrite32CountError = nil;
+        BOOL invalidFlashWrite32 = [flashUseCase writeFlashDWordsToAddress:0x00002e00
+                                                                  dwordData:tooManyDwords
+                                                                   onDevice:device
+                                                                      error:&invalidFlashWrite32CountError];
+        if (!Expect(!invalidFlashWrite32, @"Expected flash write32 with >8 dwords to fail.")) {
+            return 1;
+        }
+        if (!Expect(invalidFlashWrite32CountError != nil, @"Expected flash write32 count validation error.")) {
+            return 1;
+        }
+        if (!Expect(invalidFlashWrite32CountError.code == MLDT50ControlErrorCodeInvalidFlashCount,
+                    @"Expected invalid-flash-count code for flash write32 >8 dwords.")) {
+            return 1;
+        }
+
         MLDRecordingFeatureTransportSpy *saveSpy = [[MLDRecordingFeatureTransportSpy alloc] init];
         MLDT50ExchangeVendorCommandUseCase *saveUseCase =
             [[MLDT50ExchangeVendorCommandUseCase alloc] initWithFeatureTransportPort:saveSpy];

@@ -506,6 +506,11 @@ static const NSUInteger MLDT50SimulatorChunkSplitOffset = 56;
     printf("  t50 save [--strategy <quick|capture-v1|capture-v2|capture-v3|capture-v4|major-sync>] [selectors]\n");
     printf("  t50 command-read --opcode <n> [--flag <n>] [--offset <n>] [--data <hex>] [selectors]\n");
     printf("  t50 command-write --opcode <n> --data <hex> [--flag <n>] [--offset <n>] [selectors]\n");
+    printf("  t50 flash-read8 --addr <n> [selectors]\n");
+    printf("  t50 flash-read32 --addr <n> [--count <1..2>] [selectors]\n");
+    printf("  t50 flash-write16 --addr <n> --data <hex> [--verify <0|1>] --unsafe <0|1> [selectors]\n");
+    printf("  t50 flash-write32 --addr <n> --data <hex> --unsafe <0|1> [selectors]\n");
+    printf("  t50 flash-scan8 --from <n> --to <n> [--step <n>] [--nonzero-only <0|1>] [selectors]\n");
     printf("  t50 opcode-scan [--from <n>] [--to <n>] [--flag <n>] [--offset <n>] [--data <hex>] [selectors]\n");
     printf("  t50 capture --file <path> [--from <n>] [--to <n>] [--flag <n>] [--offset <n>] [--data <hex>] [selectors]\n");
     printf("  t50 capture-diff --before <path> --after <path>\n");
@@ -574,6 +579,21 @@ static const NSUInteger MLDT50SimulatorChunkSplitOffset = 56;
     }
     if ([subcommand isEqualToString:@"command-write"]) {
         return [self runT50CommandWriteWithArguments:subArguments];
+    }
+    if ([subcommand isEqualToString:@"flash-read8"]) {
+        return [self runT50FlashRead8WithArguments:subArguments];
+    }
+    if ([subcommand isEqualToString:@"flash-read32"]) {
+        return [self runT50FlashRead32WithArguments:subArguments];
+    }
+    if ([subcommand isEqualToString:@"flash-write16"]) {
+        return [self runT50FlashWrite16WithArguments:subArguments];
+    }
+    if ([subcommand isEqualToString:@"flash-write32"]) {
+        return [self runT50FlashWrite32WithArguments:subArguments];
+    }
+    if ([subcommand isEqualToString:@"flash-scan8"]) {
+        return [self runT50FlashScan8WithArguments:subArguments];
     }
     if ([subcommand isEqualToString:@"opcode-scan"]) {
         return [self runT50OpcodeScanWithArguments:subArguments];
@@ -1591,6 +1611,335 @@ static const NSUInteger MLDT50SimulatorChunkSplitOffset = 56;
            (unsigned long)flag,
            [self hexStringFromData:payload].UTF8String,
            responseHex.UTF8String);
+    return 0;
+}
+
+- (int)runT50FlashRead8WithArguments:(NSArray<NSString *> *)arguments {
+    NSString *parseError = nil;
+    NSDictionary<NSString *, NSString *> *options = [self parseOptionMapFromArguments:arguments errorMessage:&parseError];
+    if (options == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSSet<NSString *> *allowed =
+        [NSSet setWithArray:@[@"--addr", @"--vid", @"--pid", @"--serial", @"--model"]];
+    if (![self validateAllowedOptions:allowed options:options errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSString *addrString = options[@"--addr"];
+    if (addrString == nil) {
+        fprintf(stderr, "t50 flash-read8 requires --addr <n>.\n");
+        return 1;
+    }
+
+    NSUInteger addressValue = 0;
+    if (![self parseRequiredUnsigned:addrString maxValue:0xFFFF fieldName:@"--addr" output:&addressValue errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    MLDMouseDevice *target = [self selectT50DeviceWithOptions:options errorMessage:&parseError];
+    if (target == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSError *flashError = nil;
+    NSData *bytes = [self.t50ExchangeCommandUseCase readFlashBytes8FromAddress:(uint16_t)addressValue
+                                                                       onDevice:target
+                                                                          error:&flashError];
+    if (bytes == nil) {
+        fprintf(stderr, "t50 flash-read8 error: %s\n", flashError.localizedDescription.UTF8String);
+        return 1;
+    }
+
+    printf("t50 flash-read8 ok addr=0x%04lx data=%s\n",
+           (unsigned long)addressValue,
+           [self hexStringFromData:bytes].UTF8String);
+    return 0;
+}
+
+- (int)runT50FlashRead32WithArguments:(NSArray<NSString *> *)arguments {
+    NSString *parseError = nil;
+    NSDictionary<NSString *, NSString *> *options = [self parseOptionMapFromArguments:arguments errorMessage:&parseError];
+    if (options == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSSet<NSString *> *allowed =
+        [NSSet setWithArray:@[@"--addr", @"--count", @"--vid", @"--pid", @"--serial", @"--model"]];
+    if (![self validateAllowedOptions:allowed options:options errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSString *addrString = options[@"--addr"];
+    if (addrString == nil) {
+        fprintf(stderr, "t50 flash-read32 requires --addr <n>.\n");
+        return 1;
+    }
+
+    NSUInteger addressValue = 0;
+    NSUInteger countValue = 1;
+    if (![self parseRequiredUnsigned:addrString maxValue:0xFFFFFFFFu fieldName:@"--addr" output:&addressValue errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--count"] maxValue:2 fieldName:@"--count" output:&countValue errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+    if (countValue == 0) {
+        fprintf(stderr, "t50 flash-read32 --count must be between 1 and 2.\n");
+        return 1;
+    }
+
+    MLDMouseDevice *target = [self selectT50DeviceWithOptions:options errorMessage:&parseError];
+    if (target == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSError *flashError = nil;
+    NSData *bytes = [self.t50ExchangeCommandUseCase readFlashDWordsFromAddress:(uint32_t)addressValue
+                                                                         count:(uint8_t)countValue
+                                                                      onDevice:target
+                                                                         error:&flashError];
+    if (bytes == nil) {
+        fprintf(stderr, "t50 flash-read32 error: %s\n", flashError.localizedDescription.UTF8String);
+        return 1;
+    }
+
+    printf("t50 flash-read32 ok addr=0x%08lx count=%lu data=%s\n",
+           (unsigned long)addressValue,
+           (unsigned long)countValue,
+           [self hexStringFromData:bytes].UTF8String);
+    return 0;
+}
+
+- (int)runT50FlashWrite16WithArguments:(NSArray<NSString *> *)arguments {
+    NSString *parseError = nil;
+    NSDictionary<NSString *, NSString *> *options = [self parseOptionMapFromArguments:arguments errorMessage:&parseError];
+    if (options == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSSet<NSString *> *allowed = [NSSet setWithArray:@[
+        @"--addr", @"--data", @"--verify", @"--unsafe", @"--vid", @"--pid", @"--serial", @"--model"
+    ]];
+    if (![self validateAllowedOptions:allowed options:options errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSString *addrString = options[@"--addr"];
+    NSString *dataString = options[@"--data"];
+    if (addrString == nil || dataString == nil) {
+        fprintf(stderr, "t50 flash-write16 requires --addr <n> and --data <hex>.\n");
+        return 1;
+    }
+
+    NSUInteger addressValue = 0;
+    NSUInteger verifyValue = 0;
+    NSUInteger unsafeValue = 0;
+    if (![self parseRequiredUnsigned:addrString maxValue:0xFFFF fieldName:@"--addr" output:&addressValue errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--verify"] maxValue:1 fieldName:@"--verify" output:&verifyValue errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--unsafe"] maxValue:1 fieldName:@"--unsafe" output:&unsafeValue errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+    if (unsafeValue != 1) {
+        fprintf(stderr, "t50 flash-write16 requires --unsafe 1.\n");
+        return 1;
+    }
+
+    NSData *payload = [self dataFromHexInput:dataString errorMessage:&parseError];
+    if (payload == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    MLDMouseDevice *target = [self selectT50DeviceWithOptions:options errorMessage:&parseError];
+    if (target == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSError *flashError = nil;
+    BOOL ok = [self.t50ExchangeCommandUseCase writeFlashWordsToAddress:(uint16_t)addressValue
+                                                               wordData:payload
+                                                             verifyMode:(verifyValue == 1)
+                                                               onDevice:target
+                                                                  error:&flashError];
+    if (!ok) {
+        fprintf(stderr, "t50 flash-write16 error: %s\n", flashError.localizedDescription.UTF8String);
+        return 1;
+    }
+
+    printf("t50 flash-write16 ok addr=0x%04lx words=%lu verify=%lu payload=%s\n",
+           (unsigned long)addressValue,
+           (unsigned long)(payload.length / 2),
+           (unsigned long)verifyValue,
+           [self hexStringFromData:payload].UTF8String);
+    return 0;
+}
+
+- (int)runT50FlashWrite32WithArguments:(NSArray<NSString *> *)arguments {
+    NSString *parseError = nil;
+    NSDictionary<NSString *, NSString *> *options = [self parseOptionMapFromArguments:arguments errorMessage:&parseError];
+    if (options == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSSet<NSString *> *allowed = [NSSet setWithArray:@[
+        @"--addr", @"--data", @"--unsafe", @"--vid", @"--pid", @"--serial", @"--model"
+    ]];
+    if (![self validateAllowedOptions:allowed options:options errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSString *addrString = options[@"--addr"];
+    NSString *dataString = options[@"--data"];
+    if (addrString == nil || dataString == nil) {
+        fprintf(stderr, "t50 flash-write32 requires --addr <n> and --data <hex>.\n");
+        return 1;
+    }
+
+    NSUInteger addressValue = 0;
+    NSUInteger unsafeValue = 0;
+    if (![self parseRequiredUnsigned:addrString maxValue:0xFFFFFFFFu fieldName:@"--addr" output:&addressValue errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--unsafe"] maxValue:1 fieldName:@"--unsafe" output:&unsafeValue errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+    if (unsafeValue != 1) {
+        fprintf(stderr, "t50 flash-write32 requires --unsafe 1.\n");
+        return 1;
+    }
+
+    NSData *payload = [self dataFromHexInput:dataString errorMessage:&parseError];
+    if (payload == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    MLDMouseDevice *target = [self selectT50DeviceWithOptions:options errorMessage:&parseError];
+    if (target == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSError *flashError = nil;
+    BOOL ok = [self.t50ExchangeCommandUseCase writeFlashDWordsToAddress:(uint32_t)addressValue
+                                                               dwordData:payload
+                                                                onDevice:target
+                                                                   error:&flashError];
+    if (!ok) {
+        fprintf(stderr, "t50 flash-write32 error: %s\n", flashError.localizedDescription.UTF8String);
+        return 1;
+    }
+
+    printf("t50 flash-write32 ok addr=0x%08lx dwords=%lu payload=%s\n",
+           (unsigned long)addressValue,
+           (unsigned long)(payload.length / 4),
+           [self hexStringFromData:payload].UTF8String);
+    return 0;
+}
+
+- (int)runT50FlashScan8WithArguments:(NSArray<NSString *> *)arguments {
+    NSString *parseError = nil;
+    NSDictionary<NSString *, NSString *> *options = [self parseOptionMapFromArguments:arguments errorMessage:&parseError];
+    if (options == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSSet<NSString *> *allowed = [NSSet setWithArray:@[
+        @"--from", @"--to", @"--step", @"--nonzero-only", @"--vid", @"--pid", @"--serial", @"--model"
+    ]];
+    if (![self validateAllowedOptions:allowed options:options errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSUInteger fromValue = 0;
+    NSUInteger toValue = 0xFFFF;
+    NSUInteger stepValue = 0x0100;
+    NSUInteger nonzeroOnlyValue = 1;
+    if (![self parseOptionalUnsigned:options[@"--from"] maxValue:0xFFFF fieldName:@"--from" output:&fromValue errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--to"] maxValue:0xFFFF fieldName:@"--to" output:&toValue errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--step"] maxValue:0xFFFF fieldName:@"--step" output:&stepValue errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--nonzero-only"] maxValue:1 fieldName:@"--nonzero-only" output:&nonzeroOnlyValue errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+    if (fromValue > toValue) {
+        fprintf(stderr, "t50 flash-scan8 requires --from <= --to.\n");
+        return 1;
+    }
+    if (stepValue == 0) {
+        fprintf(stderr, "t50 flash-scan8 --step must be >= 1.\n");
+        return 1;
+    }
+
+    MLDMouseDevice *target = [self selectT50DeviceWithOptions:options errorMessage:&parseError];
+    if (target == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    printf("t50 flash-scan8 begin from=0x%04lx to=0x%04lx step=0x%04lx nonzero-only=%lu\n",
+           (unsigned long)fromValue,
+           (unsigned long)toValue,
+           (unsigned long)stepValue,
+           (unsigned long)nonzeroOnlyValue);
+
+    NSUInteger successCount = 0;
+    NSUInteger printedCount = 0;
+    for (NSUInteger address = fromValue; address <= toValue; ) {
+        NSError *flashError = nil;
+        NSData *bytes = [self.t50ExchangeCommandUseCase readFlashBytes8FromAddress:(uint16_t)address
+                                                                           onDevice:target
+                                                                              error:&flashError];
+        if (bytes == nil) {
+            printf("  addr=0x%04lx err=%s\n",
+                   (unsigned long)address,
+                   flashError.localizedDescription.UTF8String);
+        } else {
+            successCount += 1;
+            const uint8_t *raw = (const uint8_t *)bytes.bytes;
+            BOOL allZero = YES;
+            for (NSUInteger i = 0; i < bytes.length; ++i) {
+                if (raw[i] != 0x00) {
+                    allZero = NO;
+                    break;
+                }
+            }
+            if (!(nonzeroOnlyValue == 1 && allZero)) {
+                printf("  addr=0x%04lx data=%s\n",
+                       (unsigned long)address,
+                       [self hexStringFromData:bytes].UTF8String);
+                printedCount += 1;
+            }
+        }
+
+        if (address > (NSUIntegerMax - stepValue)) {
+            break;
+        }
+        NSUInteger next = address + stepValue;
+        if (next <= address) {
+            break;
+        }
+        address = next;
+    }
+
+    printf("t50 flash-scan8 done success=%lu printed=%lu\n",
+           (unsigned long)successCount,
+           (unsigned long)printedCount);
     return 0;
 }
 

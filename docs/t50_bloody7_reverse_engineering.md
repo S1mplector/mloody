@@ -63,6 +63,37 @@ This exact flow is now available as CLI strategy `capture-v3` via:
 - `capture-v4` (`capture-v3` + `Hid_major` sync tail `07`, `08`, `06`, `1e 01`, `0a`) is now implemented for additional commit probing.
 - Some T50 firmware paths may use `Hid_simulator` split-channel packets instead of the 21-slot direct frame; CLI now exposes both probe families (`color-direct` and `color-sim116`).
 
+## `0x2f` Flash Bridge (Live-Validated)
+
+Based on static disassembly (`Hid_flash`) and live packet probes:
+
+- Read 8 bytes (`Hid_flash` read helper, function `0x55c8cc`):
+  - packet: `opcode=0x2f`, payload offset `2`, bytes `00 <addr_hi> <addr_lo> 00 00 00`
+  - response payload bytes `8..15` contain the 8-byte block.
+- Read dwords (`Hid_flash` dword read helper, function `0x55ccb4`):
+  - packet byte `2 = 0x00`
+  - packet dword `24..27 = count` (`1..2`)
+  - packet dword `28..31 = address` (little-endian)
+  - response payload starts at byte `32` (`count * 4` bytes).
+- Write words (`Hid_flash` word writer helpers, `0x55ca00` / `0x55cabc`):
+  - packet byte `2 = ((word_count - 1) << 3) + 1`
+  - bytes `3..4 = addr_hi, addr_lo`
+  - byte `5 = 0x00` (normal) or `0x80` (verify-mode variant)
+  - data payload starts at byte `8` (`word_count * 2` bytes).
+- Write dwords (`Hid_flash` dword writer helper, `0x55ce14`):
+  - packet byte `2 = 0x01`
+  - packet dword `24..27 = count` (`1..8`)
+  - packet dword `28..31 = address`
+  - data payload starts at byte `32` (`count * 4` bytes).
+
+These are now first-class CLI utilities (`flash-read8`, `flash-read32`, `flash-write16`, `flash-write32`, `flash-scan8`).
+
+## Persistence Probe Status (Current)
+
+- Live read8 scan confirms stable nonzero blocks at `0x1c00`, `0x1d00`, `0x1e00`, `0x2d00`, `0x2e00`.
+- Repeated DPI changes (`dpi-set` + `save` with `capture-v4`) did not alter coarse flash-read snapshots (`0x0000..0xff00`, step `0x100`) nor the targeted `0x1c00..0x2fff` step `0x10` scan.
+- Current inference: existing `dpi-step`/`dpi-set` path is runtime-only for T50 and does not yet execute the full Bloody7 table+checksum flash update sequence.
+
 ## Static Firmware/MCU Inference
 
 From UTF-16 string clusters in `Bloody7.exe`:
