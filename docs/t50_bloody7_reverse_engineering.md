@@ -103,10 +103,12 @@ These are now first-class CLI utilities (`flash-read8`, `flash-read32`, `flash-w
   - write 8 chunks (`16` words each) via `flash_write_words_verify` at `base + 0x00, 0x10, ... 0x70`
   - finalize with single-word marker `0xA4A4` via `flash_write_words` at `base`
 - Live T50 readback at `0x1c00` (`a4 a4 ff ff ...`) matches this header shape (`marker + 0xFFFF + checksums`).
+- Live `adjustgun-scan` currently reports two header bases on T50 (`0x1c00`, `0x1d00`), both matching `A4 A4 FF FF <checksum1> <checksum2>`.
 - `mloody` now exposes this algorithm directly for controlled RE:
 
 ```bash
 ./build/mloody t50 adjustgun-write16 --addr 0x1c00 --data "<256-byte-hex>" --unsafe 1
+./build/mloody t50 adjustgun-scan --from 0x1c00 --to 0x1fff --step 0x10
 ```
 
 - This is intentionally unsafe and currently for reverse-engineering only.

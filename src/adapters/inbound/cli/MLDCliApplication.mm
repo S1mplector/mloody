@@ -511,6 +511,7 @@ static const NSUInteger MLDT50SimulatorChunkSplitOffset = 56;
     printf("  t50 flash-write16 --addr <n> --data <hex> [--verify <0|1>] --unsafe <0|1> [selectors]\n");
     printf("  t50 flash-write32 --addr <n> --data <hex> --unsafe <0|1> [selectors]\n");
     printf("  t50 adjustgun-write16 --addr <n> --data <hex256> --unsafe <0|1> [selectors]\n");
+    printf("  t50 adjustgun-dump --addr <n> [--words <n>] [--file <path>] [selectors]\n");
     printf("  t50 adjustgun-scan [--from <n>] [--to <n>] [--step <n>] [selectors]\n");
     printf("  t50 flash-scan8 --from <n> --to <n> [--step <n>] [--nonzero-only <0|1>] [selectors]\n");
     printf("  t50 flash-capture --file <path> [--from <n>] [--to <n>] [--step <n>] [--nonzero-only <0|1>] [selectors]\n");
@@ -598,6 +599,9 @@ static const NSUInteger MLDT50SimulatorChunkSplitOffset = 56;
     }
     if ([subcommand isEqualToString:@"adjustgun-write16"]) {
         return [self runT50AdjustGunWrite16WithArguments:subArguments];
+    }
+    if ([subcommand isEqualToString:@"adjustgun-dump"]) {
+        return [self runT50AdjustGunDumpWithArguments:subArguments];
     }
     if ([subcommand isEqualToString:@"adjustgun-scan"]) {
         return [self runT50AdjustGunScanWithArguments:subArguments];
@@ -1967,6 +1971,250 @@ static const NSUInteger MLDT50SimulatorChunkSplitOffset = 56;
            headerWord1,
            headerChecksum1,
            headerChecksum2);
+    return 0;
+}
+
+- (int)runT50AdjustGunScanWithArguments:(NSArray<NSString *> *)arguments {
+    NSString *parseError = nil;
+    NSDictionary<NSString *, NSString *> *options = [self parseOptionMapFromArguments:arguments errorMessage:&parseError];
+    if (options == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSSet<NSString *> *allowed = [NSSet setWithArray:@[
+        @"--from", @"--to", @"--step", @"--vid", @"--pid", @"--serial", @"--model"
+    ]];
+    if (![self validateAllowedOptions:allowed options:options errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSUInteger fromValue = 0x0000;
+    NSUInteger toValue = 0xFFFF;
+    NSUInteger stepValue = 0x0010;
+    if (![self parseOptionalUnsigned:options[@"--from"] maxValue:0xFFFF fieldName:@"--from" output:&fromValue errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--to"] maxValue:0xFFFF fieldName:@"--to" output:&toValue errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--step"] maxValue:0xFFFF fieldName:@"--step" output:&stepValue errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+    if (fromValue > toValue) {
+        fprintf(stderr, "t50 adjustgun-scan requires --from <= --to.\n");
+        return 1;
+    }
+    if (stepValue == 0) {
+        fprintf(stderr, "t50 adjustgun-scan --step must be >= 1.\n");
+        return 1;
+    }
+
+    MLDMouseDevice *target = [self selectT50DeviceWithOptions:options errorMessage:&parseError];
+    if (target == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    printf("t50 adjustgun-scan begin from=0x%04lx to=0x%04lx step=0x%04lx\n",
+           (unsigned long)fromValue,
+           (unsigned long)toValue,
+           (unsigned long)stepValue);
+
+    NSUInteger hitCount = 0;
+    for (NSUInteger address = fromValue; address <= toValue; ) {
+        NSError *readError = nil;
+        NSData *data = [self.t50ExchangeCommandUseCase readFlashBytes8FromAddress:(uint16_t)address
+                                                                           onDevice:target
+                                                                              error:&readError];
+        if (data != nil && data.length >= 8) {
+            const uint8_t *bytes = (const uint8_t *)data.bytes;
+            if (bytes[0] == 0xA4 && bytes[1] == 0xA4 && bytes[2] == 0xFF && bytes[3] == 0xFF) {
+                uint16_t checksum1 = (uint16_t)bytes[4] | ((uint16_t)bytes[5] << 8);
+                uint16_t checksum2 = (uint16_t)bytes[6] | ((uint16_t)bytes[7] << 8);
+                printf("  addr=0x%04lx marker=a4a4 word1=ffff checksum1=0x%04x checksum2=0x%04x raw=%s\n",
+                       (unsigned long)address,
+                       checksum1,
+                       checksum2,
+                       [self hexStringFromData:data].UTF8String);
+                hitCount += 1;
+            }
+        }
+
+        if (address > (NSUIntegerMax - stepValue)) {
+            break;
+        }
+        NSUInteger next = address + stepValue;
+        if (next <= address) {
+            break;
+        }
+        address = next;
+    }
+
+    printf("t50 adjustgun-scan done hits=%lu\n", (unsigned long)hitCount);
+    return 0;
+}
+
+- (int)runT50AdjustGunDumpWithArguments:(NSArray<NSString *> *)arguments {
+    NSString *parseError = nil;
+    NSDictionary<NSString *, NSString *> *options = [self parseOptionMapFromArguments:arguments errorMessage:&parseError];
+    if (options == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSSet<NSString *> *allowed = [NSSet setWithArray:@[
+        @"--addr", @"--words", @"--file", @"--vid", @"--pid", @"--serial", @"--model"
+    ]];
+    if (![self validateAllowedOptions:allowed options:options errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSString *addrString = options[@"--addr"];
+    if (addrString == nil) {
+        fprintf(stderr, "t50 adjustgun-dump requires --addr <n>.\n");
+        return 1;
+    }
+
+    NSUInteger addressValue = 0;
+    NSUInteger wordsValue = 128;
+    if (![self parseRequiredUnsigned:addrString maxValue:0xFFFF fieldName:@"--addr" output:&addressValue errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--words"] maxValue:1024 fieldName:@"--words" output:&wordsValue errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+    if (wordsValue == 0) {
+        fprintf(stderr, "t50 adjustgun-dump --words must be >= 1.\n");
+        return 1;
+    }
+
+    NSUInteger bytesToRead = wordsValue * 2;
+    NSUInteger blockCount = (bytesToRead + 7) / 8;
+    if (blockCount == 0) {
+        fprintf(stderr, "t50 adjustgun-dump internal error: zero block count.\n");
+        return 1;
+    }
+    NSUInteger lastAddress = addressValue + ((blockCount - 1) * 4);
+    if (lastAddress > 0xFFFF) {
+        fprintf(stderr, "t50 adjustgun-dump range exceeds flash address space (base=0x%04lx words=%lu).\n",
+                (unsigned long)addressValue,
+                (unsigned long)wordsValue);
+        return 1;
+    }
+
+    MLDMouseDevice *target = [self selectT50DeviceWithOptions:options errorMessage:&parseError];
+    if (target == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSMutableData *tableData = [NSMutableData dataWithCapacity:(blockCount * 8)];
+    for (NSUInteger blockIndex = 0; blockIndex < blockCount; ++blockIndex) {
+        uint16_t readAddress = (uint16_t)(addressValue + (blockIndex * 4));
+        NSError *readError = nil;
+        NSData *block = [self.t50ExchangeCommandUseCase readFlashBytes8FromAddress:readAddress
+                                                                           onDevice:target
+                                                                              error:&readError];
+        if (block == nil || block.length < 8) {
+            fprintf(stderr, "t50 adjustgun-dump read error at addr=0x%04x: %s\n",
+                    readAddress,
+                    readError.localizedDescription.UTF8String);
+            return 1;
+        }
+        [tableData appendData:block];
+    }
+    if (tableData.length > bytesToRead) {
+        [tableData setLength:bytesToRead];
+    }
+
+    if (tableData.length < 8) {
+        fprintf(stderr, "t50 adjustgun-dump requires at least 8 bytes, got %lu.\n",
+                (unsigned long)tableData.length);
+        return 1;
+    }
+
+    const uint8_t *bytes = (const uint8_t *)tableData.bytes;
+    uint16_t marker = (uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8);
+    uint16_t word1 = (uint16_t)bytes[2] | ((uint16_t)bytes[3] << 8);
+    uint16_t headerChecksum1 = (uint16_t)bytes[4] | ((uint16_t)bytes[5] << 8);
+    uint16_t headerChecksum2 = (uint16_t)bytes[6] | ((uint16_t)bytes[7] << 8);
+
+    uint16_t computedChecksum1 = 0;
+    uint16_t computedChecksum2 = 0;
+    for (NSUInteger wordIndex = 4; wordIndex < wordsValue; ++wordIndex) {
+        NSUInteger byteIndex = wordIndex * 2;
+        if ((byteIndex + 1) >= tableData.length) {
+            break;
+        }
+        uint16_t value = (uint16_t)bytes[byteIndex] | ((uint16_t)bytes[byteIndex + 1] << 8);
+        computedChecksum1 = (uint16_t)(computedChecksum1 + value);
+        computedChecksum2 = (uint16_t)(computedChecksum2 + (uint16_t)(value * (uint16_t)wordIndex));
+    }
+
+    BOOL markerLooksValid = (marker == 0xA4A4 && word1 == 0xFFFF);
+    BOOL checksumsMatch = (headerChecksum1 == computedChecksum1 && headerChecksum2 == computedChecksum2);
+
+    printf("t50 adjustgun-dump addr=0x%04lx words=%lu bytes=%lu\n",
+           (unsigned long)addressValue,
+           (unsigned long)wordsValue,
+           (unsigned long)tableData.length);
+    printf("  header marker=0x%04x word1=0x%04x checksum1=0x%04x checksum2=0x%04x\n",
+           marker,
+           word1,
+           headerChecksum1,
+           headerChecksum2);
+    printf("  computed checksum1=0x%04x checksum2=0x%04x marker-valid=%s checksum-match=%s\n",
+           computedChecksum1,
+           computedChecksum2,
+           markerLooksValid ? "yes" : "no",
+           checksumsMatch ? "yes" : "no");
+    printf("  data=%s\n", [self hexStringFromData:tableData].UTF8String);
+
+    NSString *filePath = options[@"--file"];
+    if (filePath != nil && filePath.length > 0) {
+        NSDictionary *capture = @{
+            @"timestamp_unix" : @([[NSDate date] timeIntervalSince1970]),
+            @"device" : @{
+                @"vendor_id" : @(target.vendorID),
+                @"product_id" : @(target.productID),
+                @"location_id" : @(target.locationID),
+                @"model" : target.modelName,
+                @"serial" : target.serialNumber
+            },
+            @"request" : @{
+                @"base_addr" : @(addressValue),
+                @"words" : @(wordsValue),
+                @"bytes" : @(tableData.length)
+            },
+            @"header" : @{
+                @"marker" : @(marker),
+                @"word1" : @(word1),
+                @"checksum1" : @(headerChecksum1),
+                @"checksum2" : @(headerChecksum2)
+            },
+            @"computed" : @{
+                @"checksum1" : @(computedChecksum1),
+                @"checksum2" : @(computedChecksum2),
+                @"marker_valid" : @(markerLooksValid),
+                @"checksum_match" : @(checksumsMatch)
+            },
+            @"data_hex" : [self hexStringFromData:tableData]
+        };
+
+        NSError *jsonError = nil;
+        NSData *jsonData = [NSJSONSerialization dataWithJSONObject:capture options:NSJSONWritingPrettyPrinted error:&jsonError];
+        if (jsonData == nil) {
+            fprintf(stderr, "t50 adjustgun-dump JSON encode error: %s\n", jsonError.localizedDescription.UTF8String);
+            return 1;
+        }
+
+        BOOL wrote = [jsonData writeToFile:filePath options:NSDataWritingAtomic error:&jsonError];
+        if (!wrote) {
+            fprintf(stderr, "t50 adjustgun-dump file write error: %s\n", jsonError.localizedDescription.UTF8String);
+            return 1;
+        }
+        printf("  saved=%s\n", filePath.UTF8String);
+    }
+
     return 0;
 }
 
