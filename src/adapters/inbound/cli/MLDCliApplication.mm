@@ -496,7 +496,9 @@ static const NSUInteger MLDT50SimulatorChunkSplitOffset = 56;
     printf("  t50 backlight-set --level <0..3> [selectors]\n");
     printf("  t50 core-get [selectors]\n");
     printf("  t50 core-state [selectors]\n");
-    printf("  t50 core-set --core <1..4> [--save <0|1>] [--strategy <quick|capture-v1|capture-v2|capture-v3|capture-v4|major-sync>] [selectors]\n");
+    printf("  t50 core-set --core <1..4> [--verify <0|1>] [--retries <n>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2|capture-v3|capture-v4|major-sync>] [selectors]\n");
+    printf("  t50 core-scan [--from <1..4>] [--to <1..4>] [--verify <0|1>] [--retries <n>] [--delay-ms <n>] [--restore <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2|capture-v3|capture-v4|major-sync>] [selectors]\n");
+    printf("  t50 core-recover [--core <1..4>] [--verify <0|1>] [--retries <n>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2|capture-v3|capture-v4|major-sync>] [selectors]\n");
     printf("  t50 save [--strategy <quick|capture-v1|capture-v2|capture-v3|capture-v4|major-sync>] [selectors]\n");
     printf("  t50 command-read --opcode <n> [--flag <n>] [--offset <n>] [--data <hex>] [selectors]\n");
     printf("  t50 command-write --opcode <n> --data <hex> [--flag <n>] [--offset <n>] [selectors]\n");
@@ -540,6 +542,12 @@ static const NSUInteger MLDT50SimulatorChunkSplitOffset = 56;
     }
     if ([subcommand isEqualToString:@"core-set"]) {
         return [self runT50CoreSetWithArguments:subArguments];
+    }
+    if ([subcommand isEqualToString:@"core-scan"]) {
+        return [self runT50CoreScanWithArguments:subArguments];
+    }
+    if ([subcommand isEqualToString:@"core-recover"]) {
+        return [self runT50CoreRecoverWithArguments:subArguments];
     }
     if ([subcommand isEqualToString:@"save"]) {
         return [self runT50SaveWithArguments:subArguments];
@@ -748,6 +756,79 @@ static const NSUInteger MLDT50SimulatorChunkSplitOffset = 56;
     return 0;
 }
 
+- (BOOL)applyT50CoreSlotCandidate:(uint8_t)slot
+                          onDevice:(MLDMouseDevice *)device
+                            verify:(BOOL)verify
+                           retries:(NSUInteger)retries
+                     observedState:(NSDictionary<NSString *, NSNumber *> * _Nullable * _Nullable)observedState
+                      errorMessage:(NSString **)errorMessage {
+    if (observedState != nil) {
+        *observedState = nil;
+    }
+
+    const NSUInteger attempts = retries + 1;
+    for (NSUInteger attempt = 0; attempt < attempts; ++attempt) {
+        NSError *setError = nil;
+        BOOL setOK = [self.t50ExchangeCommandUseCase setCoreSlotCandidate:slot onDevice:device error:&setError];
+        if (!setOK) {
+            if (errorMessage != nil) {
+                *errorMessage = [NSString stringWithFormat:@"core write failed at attempt %lu/%lu: %@",
+                                                           (unsigned long)(attempt + 1),
+                                                           (unsigned long)attempts,
+                                                           setError.localizedDescription];
+            }
+            return NO;
+        }
+
+        NSError *readError = nil;
+        NSDictionary<NSString *, NSNumber *> *state =
+            [self.t50ExchangeCommandUseCase readCoreStateCandidateForDevice:device error:&readError];
+        if (state != nil && observedState != nil) {
+            *observedState = state;
+        }
+
+        if (!verify) {
+            return YES;
+        }
+
+        if (state != nil) {
+            NSNumber *observedSlot = state[@"slot"];
+            if (observedSlot != nil && observedSlot.unsignedIntegerValue == slot) {
+                return YES;
+            }
+        }
+
+        if (attempt + 1 < attempts) {
+            [NSThread sleepForTimeInterval:0.05];
+            continue;
+        }
+
+        if (errorMessage != nil) {
+            if (state == nil) {
+                *errorMessage = [NSString stringWithFormat:@"core verify read failed after %lu attempts: %@",
+                                                           (unsigned long)attempts,
+                                                           readError.localizedDescription];
+            } else {
+                NSUInteger observedSlot = [state[@"slot"] unsignedIntegerValue];
+                NSUInteger lowBits = [state[@"lowBits"] unsignedIntegerValue];
+                NSUInteger rawWord = [state[@"rawWord"] unsignedIntegerValue];
+                *errorMessage = [NSString stringWithFormat:@"core verify mismatch after %lu attempts: requested=%u observed=%lu low2=%lu raw=0x%04lx",
+                                                           (unsigned long)attempts,
+                                                           slot,
+                                                           (unsigned long)observedSlot,
+                                                           (unsigned long)lowBits,
+                                                           (unsigned long)rawWord];
+            }
+        }
+        return NO;
+    }
+
+    if (errorMessage != nil) {
+        *errorMessage = @"core write loop did not execute.";
+    }
+    return NO;
+}
+
 - (int)runT50CoreSetWithArguments:(NSArray<NSString *> *)arguments {
     NSString *parseError = nil;
     NSDictionary<NSString *, NSString *> *options = [self parseOptionMapFromArguments:arguments errorMessage:&parseError];
@@ -756,8 +837,9 @@ static const NSUInteger MLDT50SimulatorChunkSplitOffset = 56;
         return 1;
     }
 
-    NSSet<NSString *> *allowed =
-        [NSSet setWithArray:@[@"--core", @"--save", @"--strategy", @"--vid", @"--pid", @"--serial", @"--model"]];
+    NSSet<NSString *> *allowed = [NSSet setWithArray:@[
+        @"--core", @"--verify", @"--retries", @"--save", @"--strategy", @"--vid", @"--pid", @"--serial", @"--model"
+    ]];
     if (![self validateAllowedOptions:allowed options:options errorMessage:&parseError]) {
         fprintf(stderr, "%s\n", parseError.UTF8String);
         return 1;
@@ -770,13 +852,27 @@ static const NSUInteger MLDT50SimulatorChunkSplitOffset = 56;
     }
 
     NSUInteger coreValue = 0;
+    NSUInteger verifyValue = 1;
+    NSUInteger retries = 2;
     NSUInteger saveValue = 1;
     if (![self parseRequiredUnsigned:coreString maxValue:4 fieldName:@"--core" output:&coreValue errorMessage:&parseError]) {
         fprintf(stderr, "%s\n", parseError.UTF8String);
         return 1;
     }
+    if (![self parseOptionalUnsigned:options[@"--verify"] maxValue:1 fieldName:@"--verify" output:&verifyValue errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+    if (![self parseOptionalUnsigned:options[@"--retries"] maxValue:20 fieldName:@"--retries" output:&retries errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
     if (![self parseOptionalUnsigned:options[@"--save"] maxValue:1 fieldName:@"--save" output:&saveValue errorMessage:&parseError]) {
         fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+    if (coreValue == 0) {
+        fprintf(stderr, "--core must be between 1 and 4.\n");
         return 1;
     }
 
@@ -798,10 +894,16 @@ static const NSUInteger MLDT50SimulatorChunkSplitOffset = 56;
         return 1;
     }
 
-    NSError *setError = nil;
-    BOOL setOK = [self.t50ExchangeCommandUseCase setCoreSlotCandidate:(uint8_t)coreValue onDevice:target error:&setError];
+    NSDictionary<NSString *, NSNumber *> *observedState = nil;
+    NSString *coreError = nil;
+    BOOL setOK = [self applyT50CoreSlotCandidate:(uint8_t)coreValue
+                                        onDevice:target
+                                          verify:(verifyValue == 1)
+                                         retries:retries
+                                   observedState:&observedState
+                                    errorMessage:&coreError];
     if (!setOK) {
-        fprintf(stderr, "t50 core-set error: %s\n", setError.localizedDescription.UTF8String);
+        fprintf(stderr, "t50 core-set error: %s\n", coreError.UTF8String);
         return 1;
     }
 
@@ -814,8 +916,261 @@ static const NSUInteger MLDT50SimulatorChunkSplitOffset = 56;
         }
     }
 
-    printf("t50 core-set candidate=%lu save=%lu strategy=%s\n",
+    NSUInteger observedSlot = [observedState[@"slot"] unsignedIntegerValue];
+    NSUInteger lowBits = [observedState[@"lowBits"] unsignedIntegerValue];
+    NSUInteger rawWord = [observedState[@"rawWord"] unsignedIntegerValue];
+    printf("t50 core-set candidate=%lu observed=%lu low2=%lu raw=0x%04lx verify=%lu retries=%lu save=%lu strategy=%s\n",
            (unsigned long)coreValue,
+           (unsigned long)observedSlot,
+           (unsigned long)lowBits,
+           (unsigned long)rawWord,
+           (unsigned long)verifyValue,
+           (unsigned long)retries,
+           (unsigned long)saveValue,
+           strategyOption.UTF8String);
+    return 0;
+}
+
+- (int)runT50CoreScanWithArguments:(NSArray<NSString *> *)arguments {
+    NSString *parseError = nil;
+    NSDictionary<NSString *, NSString *> *options = [self parseOptionMapFromArguments:arguments errorMessage:&parseError];
+    if (options == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSSet<NSString *> *allowed = [NSSet setWithArray:@[
+        @"--from", @"--to", @"--verify", @"--retries", @"--delay-ms", @"--restore", @"--save", @"--strategy", @"--vid", @"--pid",
+        @"--serial", @"--model"
+    ]];
+    if (![self validateAllowedOptions:allowed options:options errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSUInteger fromCore = 1;
+    NSUInteger toCore = 4;
+    NSUInteger verifyValue = 1;
+    NSUInteger retries = 1;
+    NSUInteger delayMilliseconds = 150;
+    NSUInteger restoreValue = 1;
+    NSUInteger saveValue = 0;
+
+    if (![self parseOptionalUnsigned:options[@"--from"] maxValue:4 fieldName:@"--from" output:&fromCore errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--to"] maxValue:4 fieldName:@"--to" output:&toCore errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--verify"] maxValue:1 fieldName:@"--verify" output:&verifyValue errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--retries"] maxValue:20 fieldName:@"--retries" output:&retries errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--delay-ms"] maxValue:5000 fieldName:@"--delay-ms" output:&delayMilliseconds errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--restore"] maxValue:1 fieldName:@"--restore" output:&restoreValue errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--save"] maxValue:1 fieldName:@"--save" output:&saveValue errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+    if (fromCore == 0 || toCore == 0 || fromCore > toCore) {
+        fprintf(stderr, "t50 core-scan requires 1 <= --from <= --to <= 4.\n");
+        return 1;
+    }
+
+    NSString *strategyOption = nil;
+    MLDT50SaveStrategy strategy = MLDT50SaveStrategyCaptureV1;
+    if (![self parseT50SaveStrategyOption:options[@"--strategy"]
+                             defaultValue:@"capture-v1"
+                               subcommand:@"t50 core-scan"
+                                 strategy:&strategy
+                            strategyLabel:&strategyOption
+                             errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    MLDMouseDevice *target = [self selectT50DeviceWithOptions:options errorMessage:&parseError];
+    if (target == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSError *initialError = nil;
+    NSDictionary<NSString *, NSNumber *> *initialState =
+        [self.t50ExchangeCommandUseCase readCoreStateCandidateForDevice:target error:&initialError];
+    if (initialState == nil) {
+        fprintf(stderr, "t50 core-scan initial read error: %s\n", initialError.localizedDescription.UTF8String);
+        return 1;
+    }
+
+    NSUInteger initialCore = [initialState[@"slot"] unsignedIntegerValue];
+    printf("t50 core-scan begin from=%lu to=%lu initial-core=%lu verify=%lu retries=%lu delay-ms=%lu restore=%lu save=%lu strategy=%s\n",
+           (unsigned long)fromCore,
+           (unsigned long)toCore,
+           (unsigned long)initialCore,
+           (unsigned long)verifyValue,
+           (unsigned long)retries,
+           (unsigned long)delayMilliseconds,
+           (unsigned long)restoreValue,
+           (unsigned long)saveValue,
+           strategyOption.UTF8String);
+
+    BOOL failed = NO;
+    for (NSUInteger core = fromCore; core <= toCore; ++core) {
+        NSDictionary<NSString *, NSNumber *> *state = nil;
+        NSString *coreError = nil;
+        BOOL setOK = [self applyT50CoreSlotCandidate:(uint8_t)core
+                                            onDevice:target
+                                              verify:(verifyValue == 1)
+                                             retries:retries
+                                       observedState:&state
+                                        errorMessage:&coreError];
+        if (!setOK) {
+            fprintf(stderr, "t50 core-scan set error core=%lu: %s\n",
+                    (unsigned long)core,
+                    coreError.UTF8String);
+            failed = YES;
+            break;
+        }
+
+        if (saveValue == 1) {
+            NSError *saveError = nil;
+            BOOL saveOK = [self.t50ExchangeCommandUseCase saveSettingsToDevice:target strategy:strategy error:&saveError];
+            if (!saveOK) {
+                fprintf(stderr, "t50 core-scan save error core=%lu: %s\n",
+                        (unsigned long)core,
+                        saveError.localizedDescription.UTF8String);
+                failed = YES;
+                break;
+            }
+        }
+
+        NSUInteger observedCore = [state[@"slot"] unsignedIntegerValue];
+        NSUInteger lowBits = [state[@"lowBits"] unsignedIntegerValue];
+        NSUInteger rawWord = [state[@"rawWord"] unsignedIntegerValue];
+        printf("t50 core-scan core=%lu observed=%lu low2=%lu raw=0x%04lx\n",
+               (unsigned long)core,
+               (unsigned long)observedCore,
+               (unsigned long)lowBits,
+               (unsigned long)rawWord);
+
+        if (delayMilliseconds > 0 && core < toCore) {
+            [NSThread sleepForTimeInterval:((NSTimeInterval)delayMilliseconds / 1000.0)];
+        }
+    }
+
+    if (restoreValue == 1 && initialCore >= 1 && initialCore <= 4) {
+        NSDictionary<NSString *, NSNumber *> *restoredState = nil;
+        NSString *restoreError = nil;
+        BOOL restoreOK = [self applyT50CoreSlotCandidate:(uint8_t)initialCore
+                                                onDevice:target
+                                                  verify:(verifyValue == 1)
+                                                 retries:retries
+                                           observedState:&restoredState
+                                            errorMessage:&restoreError];
+        if (!restoreOK) {
+            fprintf(stderr, "t50 core-scan restore error: %s\n", restoreError.UTF8String);
+            failed = YES;
+        } else {
+            if (saveValue == 1) {
+                NSError *saveError = nil;
+                BOOL saveOK = [self.t50ExchangeCommandUseCase saveSettingsToDevice:target strategy:strategy error:&saveError];
+                if (!saveOK) {
+                    fprintf(stderr, "t50 core-scan restore save error: %s\n", saveError.localizedDescription.UTF8String);
+                    failed = YES;
+                }
+            }
+
+            NSUInteger observedCore = [restoredState[@"slot"] unsignedIntegerValue];
+            NSUInteger lowBits = [restoredState[@"lowBits"] unsignedIntegerValue];
+            NSUInteger rawWord = [restoredState[@"rawWord"] unsignedIntegerValue];
+            printf("t50 core-scan restored core=%lu observed=%lu low2=%lu raw=0x%04lx\n",
+                   (unsigned long)initialCore,
+                   (unsigned long)observedCore,
+                   (unsigned long)lowBits,
+                   (unsigned long)rawWord);
+        }
+    }
+
+    return failed ? 1 : 0;
+}
+
+- (int)runT50CoreRecoverWithArguments:(NSArray<NSString *> *)arguments {
+    NSString *parseError = nil;
+    NSDictionary<NSString *, NSString *> *options = [self parseOptionMapFromArguments:arguments errorMessage:&parseError];
+    if (options == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSSet<NSString *> *allowed = [NSSet setWithArray:@[
+        @"--core", @"--verify", @"--retries", @"--save", @"--strategy", @"--vid", @"--pid", @"--serial", @"--model"
+    ]];
+    if (![self validateAllowedOptions:allowed options:options errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSUInteger coreValue = 1;
+    NSUInteger verifyValue = 1;
+    NSUInteger retries = 3;
+    NSUInteger saveValue = 1;
+    if (![self parseOptionalUnsigned:options[@"--core"] maxValue:4 fieldName:@"--core" output:&coreValue errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--verify"] maxValue:1 fieldName:@"--verify" output:&verifyValue errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--retries"] maxValue:20 fieldName:@"--retries" output:&retries errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--save"] maxValue:1 fieldName:@"--save" output:&saveValue errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+    if (coreValue == 0) {
+        fprintf(stderr, "--core must be between 1 and 4.\n");
+        return 1;
+    }
+
+    NSString *strategyOption = nil;
+    MLDT50SaveStrategy strategy = MLDT50SaveStrategyCaptureV4;
+    if (![self parseT50SaveStrategyOption:options[@"--strategy"]
+                             defaultValue:@"capture-v4"
+                               subcommand:@"t50 core-recover"
+                                 strategy:&strategy
+                            strategyLabel:&strategyOption
+                             errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    MLDMouseDevice *target = [self selectT50DeviceWithOptions:options errorMessage:&parseError];
+    if (target == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSDictionary<NSString *, NSNumber *> *state = nil;
+    NSString *coreError = nil;
+    BOOL setOK = [self applyT50CoreSlotCandidate:(uint8_t)coreValue
+                                        onDevice:target
+                                          verify:(verifyValue == 1)
+                                         retries:retries
+                                   observedState:&state
+                                    errorMessage:&coreError];
+    if (!setOK) {
+        fprintf(stderr, "t50 core-recover error: %s\n", coreError.UTF8String);
+        return 1;
+    }
+
+    if (saveValue == 1) {
+        NSError *saveError = nil;
+        BOOL saveOK = [self.t50ExchangeCommandUseCase saveSettingsToDevice:target strategy:strategy error:&saveError];
+        if (!saveOK) {
+            fprintf(stderr, "t50 core-recover save error: %s\n", saveError.localizedDescription.UTF8String);
+            return 1;
+        }
+    }
+
+    NSUInteger observedCore = [state[@"slot"] unsignedIntegerValue];
+    NSUInteger lowBits = [state[@"lowBits"] unsignedIntegerValue];
+    NSUInteger rawWord = [state[@"rawWord"] unsignedIntegerValue];
+    printf("t50 core-recover target=%lu observed=%lu low2=%lu raw=0x%04lx verify=%lu retries=%lu save=%lu strategy=%s\n",
+           (unsigned long)coreValue,
+           (unsigned long)observedCore,
+           (unsigned long)lowBits,
+           (unsigned long)rawWord,
+           (unsigned long)verifyValue,
+           (unsigned long)retries,
            (unsigned long)saveValue,
            strategyOption.UTF8String);
     return 0;

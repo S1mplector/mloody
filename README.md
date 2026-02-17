@@ -40,7 +40,9 @@ ctest --test-dir build --output-on-failure
 ./build/mloody t50 color-sim116 --r 255 --g 0 --b 0 --index 0 --prepare 1 --save 0
 ./build/mloody t50 core-get
 ./build/mloody t50 core-state
-./build/mloody t50 core-set --core 2 --save 1 --strategy capture-v4
+./build/mloody t50 core-set --core 2 --verify 1 --retries 2 --save 1 --strategy capture-v4
+./build/mloody t50 core-scan --from 1 --to 4 --verify 1 --restore 1 --save 0
+./build/mloody t50 core-recover --core 1 --verify 1 --retries 3 --save 1 --strategy capture-v4
 ./build/mloody t50 save --strategy quick
 ./build/mloody t50 command-read --opcode 0x11 --flag 0x00
 ./build/mloody t50 command-write --opcode 0x11 --data "ff 00 00" --offset 8
@@ -98,7 +100,9 @@ Available tools:
 ./build/mloody t50 color-probe --opcode 0x13 --r 255 --g 0 --b 0
 ./build/mloody t50 core-get
 ./build/mloody t50 core-state
-./build/mloody t50 core-set --core 1 --save 1 --strategy capture-v4
+./build/mloody t50 core-set --core 1 --verify 1 --retries 2 --save 1 --strategy capture-v4
+./build/mloody t50 core-scan --from 1 --to 4 --verify 1 --restore 1 --save 0
+./build/mloody t50 core-recover --core 1 --verify 1 --retries 3 --save 1 --strategy capture-v4
 ./build/mloody t50 save --strategy quick
 ```
 
@@ -114,7 +118,9 @@ Use `--prepare 1` to run the captured preamble (`open` + `0x00 0x02`) before RGB
 Current mapping hypothesis for T50 packets: `logo=slot 15`, `wheel=slots 7,8,21`, `wheel-indicator=slot 21`, `rear=slots 1-6,9-14,16-20`, `all=slots 1-21`.
 `color-sim116` replays Bloody7's split simulator packets (`06 07/08/09/0A/0B/0C`) with 116 logical color indices and is useful when rear/logo LEDs ignore the 21-slot direct frame path.
 `core-get` decodes from `opcode 0x1f` (`word @ payload[2..3]`, core = `(word & 0x3) + 1`), and `core-state` prints raw decode fields for RE.
-`core-set` remains a candidate mapping (`write opcode 0x0c payload 06 80 <core>`) and should still be validated on hardware.
+`core-set` remains a candidate mapping (`write opcode 0x0c payload 06 80 <core>`) and now supports `--verify` + `--retries` for safer readback validation.
+`core-scan` automates stepping through a core range (`--from/--to`) with optional readback verification, delay, and automatic restore to the initial core.
+`core-recover` is a safety helper that reapplies a known core (default `1`) with verification and optional persistence (`--save 1 --strategy capture-v4` by default).
 `t50 save` is an experimental persistence helper with strategies `quick`, `capture-v1`, `capture-v2`, `capture-v3`, `capture-v4`, and `major-sync`.
 `capture-v2` mirrors only the observed Windows "OK/save" tail (`03 03 0b 00`, `14`, `05`, `2f`, `0e`, `0f`, `0c`, `0a`).
 `capture-v3` replays the fuller traced flow (warmup `03 06 05/06/02`, brightness menu open `03 03 0b 01`, brightness ramp `11:0..3` with `0a` ticks, then the same tail plus `03 06 05/06`) and remains the baseline persistence strategy.

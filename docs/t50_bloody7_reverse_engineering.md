@@ -70,6 +70,9 @@ From UTF-16 string clusters in `Bloody7.exe`:
   - `SN8F2253B`, `SN8F22E88B`, `SN8F2288`, followed by modern `SN32F247B`/`SN32F248B` entries.
 - A static ordered-pair heuristic (scripted in `tools/re/bloody7_fw_mcu_map.py`) maps:
   - `A60cir_P3332A_%.3X_%d` -> `SN8F22E88B`
+- A switch-table extractor (`tools/re/bloody7_fw_case_map.py`) now decodes part of the legacy firmware selector:
+  - jump-table case `0x4EC` -> `A60cir_P3332A_%.3X_%d` (T50-family template)
+  - other decoded neighbors include `0x4E0`/`0x4E4`/`0x4F0`/`0x4F4` mapped to `J95S`/`J90S`/`N81c`/`V9Mc` templates.
 
 Confidence:
 
