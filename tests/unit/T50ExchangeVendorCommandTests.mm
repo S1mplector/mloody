@@ -402,6 +402,66 @@ int main(void) {
             return 1;
         }
 
+        [saveSpy.writes removeAllObjects];
+        NSError *captureV4SaveError = nil;
+        BOOL captureV4Saved = [saveUseCase saveSettingsToDevice:device
+                                                       strategy:MLDT50SaveStrategyCaptureV4
+                                                          error:&captureV4SaveError];
+        if (!Expect(captureV4Saved, @"Expected capture-v4 T50 save strategy to succeed.")) {
+            return 1;
+        }
+        if (!Expect(captureV4SaveError == nil, @"Expected no error for capture-v4 save strategy.")) {
+            return 1;
+        }
+        if (!Expect(saveSpy.writes.count ==
+                        [MLDT50ExchangeVendorCommandUseCase saveStepCountForStrategy:MLDT50SaveStrategyCaptureV4],
+                    @"Expected capture-v4 strategy to emit expected number of packets.")) {
+            return 1;
+        }
+
+        const uint8_t *captureV4MajorSyncFirstPacket = (const uint8_t *)saveSpy.writes[22].bytes;
+        if (!Expect(captureV4MajorSyncFirstPacket[1] == 0x07,
+                    @"Expected capture-v4 to append major-sync opcode 0x07 after capture-v3 flow.")) {
+            return 1;
+        }
+        const uint8_t *captureV4MajorSyncSecondPacket = (const uint8_t *)saveSpy.writes[23].bytes;
+        if (!Expect(captureV4MajorSyncSecondPacket[1] == 0x08,
+                    @"Expected capture-v4 to append major-sync opcode 0x08.")) {
+            return 1;
+        }
+        const uint8_t *captureV4MajorSyncFourthPacket = (const uint8_t *)saveSpy.writes[25].bytes;
+        if (!Expect(captureV4MajorSyncFourthPacket[1] == 0x1e && captureV4MajorSyncFourthPacket[2] == 0x01,
+                    @"Expected capture-v4 to include 0x1E with payload byte 0x01.")) {
+            return 1;
+        }
+
+        [saveSpy.writes removeAllObjects];
+        NSError *majorSyncSaveError = nil;
+        BOOL majorSyncSaved = [saveUseCase saveSettingsToDevice:device
+                                                       strategy:MLDT50SaveStrategyMajorSync
+                                                          error:&majorSyncSaveError];
+        if (!Expect(majorSyncSaved, @"Expected major-sync T50 save strategy to succeed.")) {
+            return 1;
+        }
+        if (!Expect(majorSyncSaveError == nil, @"Expected no error for major-sync save strategy.")) {
+            return 1;
+        }
+        if (!Expect(saveSpy.writes.count ==
+                        [MLDT50ExchangeVendorCommandUseCase saveStepCountForStrategy:MLDT50SaveStrategyMajorSync],
+                    @"Expected major-sync strategy to emit expected number of packets.")) {
+            return 1;
+        }
+        const uint8_t *majorSyncFirstPacket = (const uint8_t *)saveSpy.writes.firstObject.bytes;
+        if (!Expect(majorSyncFirstPacket[1] == 0x07,
+                    @"Expected major-sync first packet opcode to be 0x07.")) {
+            return 1;
+        }
+        const uint8_t *majorSyncLastPacket = (const uint8_t *)saveSpy.writes.lastObject.bytes;
+        if (!Expect(majorSyncLastPacket[1] == 0x0a,
+                    @"Expected major-sync last packet opcode to be 0x0A.")) {
+            return 1;
+        }
+
         MLDRecordingFeatureTransportSpy *failingSpy = [[MLDRecordingFeatureTransportSpy alloc] init];
         failingSpy.shouldFail = YES;
         MLDT50ExchangeVendorCommandUseCase *failingUseCase =

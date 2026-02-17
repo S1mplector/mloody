@@ -10,6 +10,13 @@ This document tracks high-confidence findings from the extracted Bloody7 bundle 
   - `kernel1` / `kernel4`: CPI controls use simulator family `15`.
   - `kernel2` / `kernel3`: CPI controls use simulator family `26` (and related `27` entries).
 - `Bloody7_English.ini` strings include multiple "stored in mouse memory" apply notices, implying per-page apply/commit transactions rather than a single global save flag.
+- Static disassembly confirms three packet constructors in `Bloody7.exe`:
+  - fixed packet builder (`0x55adcc`): fills bytes `2..15`
+  - variable packet builder (`0x55aea4`): fills bytes `2..7` and copies variable payload into bytes `8+`
+  - fixed+readback verifier (`0x55af60`): same fixed frame with post-write readback validation
+- `Hid_simulator` includes split-channel color writes with subcommands `06 07`, `06 08`, `06 09`, `06 0A`, `06 0B`, `06 0C`; each transmits 58 channel bytes as:
+  - packet bytes `6..7` = chunk bytes `56..57`
+  - packet bytes `8..63` = chunk bytes `0..55`
 
 ## Captured Persistence Transaction (Windows)
 
@@ -50,6 +57,8 @@ This exact flow is now available as CLI strategy `capture-v3` via:
 
 - `capture-v2` is a partial tail replay and may be insufficient for reliable on-device persistence by itself.
 - `capture-v3` better mirrors GUI behavior and should be the default persistence probe while we map DPI/core writes.
+- `capture-v4` (`capture-v3` + `Hid_major` sync tail `07`, `08`, `06`, `1e 01`, `0a`) is now implemented for additional commit probing.
+- Some T50 firmware paths may use `Hid_simulator` split-channel packets instead of the 21-slot direct frame; CLI now exposes both probe families (`color-direct` and `color-sim116`).
 
 ## Next RE Targets
 

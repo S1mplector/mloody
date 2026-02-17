@@ -87,6 +87,17 @@ static const MLDT50SaveStep MLDT50CaptureV3FinalizeSequence[] = {
     {0x03, 0x00, 2, {0x06, 0x06}, 2},
 };
 
+// Capture-v4 appends a Hid_major-style sync tail seen in static Bloody7 calls.
+// These are still reverse-engineering candidates and should be validated in
+// hardware persistence checks.
+static const MLDT50SaveStep MLDT50MajorSyncSequence[] = {
+    {0x07, 0x00, 8, {0x00}, 0},
+    {0x08, 0x00, 8, {0x00}, 0},
+    {0x06, 0x00, 8, {0x00}, 0},
+    {0x1E, 0x00, 2, {0x01}, 1},
+    {0x0A, 0x00, 8, {0x00}, 0},
+};
+
 @interface MLDT50ExchangeVendorCommandUseCase ()
 
 @property(nonatomic, strong) id<MLDFeatureTransportPort> featureTransportPort;
@@ -125,6 +136,11 @@ static const MLDT50SaveStep MLDT50CaptureV3FinalizeSequence[] = {
             return sizeof(MLDT50CaptureV3WarmupSequence) / sizeof(MLDT50CaptureV3WarmupSequence[0]) +
                    sizeof(MLDT50CaptureV3BrightnessRampSequence) / sizeof(MLDT50CaptureV3BrightnessRampSequence[0]) +
                    sizeof(MLDT50CaptureV3FinalizeSequence) / sizeof(MLDT50CaptureV3FinalizeSequence[0]);
+        case MLDT50SaveStrategyCaptureV4:
+            return [self saveStepCountForStrategy:MLDT50SaveStrategyCaptureV3] +
+                   sizeof(MLDT50MajorSyncSequence) / sizeof(MLDT50MajorSyncSequence[0]);
+        case MLDT50SaveStrategyMajorSync:
+            return sizeof(MLDT50MajorSyncSequence) / sizeof(MLDT50MajorSyncSequence[0]);
     }
 
     return 0;
@@ -360,6 +376,45 @@ static const MLDT50SaveStep MLDT50CaptureV3FinalizeSequence[] = {
     return YES;
 }
 
+- (BOOL)executeCaptureV3OnDevice:(MLDMouseDevice *)device
+                  startingAtStep:(NSUInteger)startingAtStep
+                       totalSteps:(NSUInteger)totalSteps
+                           error:(NSError **)error {
+    const NSUInteger warmupCount = sizeof(MLDT50CaptureV3WarmupSequence) / sizeof(MLDT50CaptureV3WarmupSequence[0]);
+    const NSUInteger rampCount =
+        sizeof(MLDT50CaptureV3BrightnessRampSequence) / sizeof(MLDT50CaptureV3BrightnessRampSequence[0]);
+    const NSUInteger finalizeCount =
+        sizeof(MLDT50CaptureV3FinalizeSequence) / sizeof(MLDT50CaptureV3FinalizeSequence[0]);
+    NSUInteger index = startingAtStep;
+
+    if (![self executeSaveSequence:MLDT50CaptureV3WarmupSequence
+                         stepCount:warmupCount
+                          onDevice:device
+                    startingAtStep:index
+                        totalSteps:totalSteps
+                             error:error]) {
+        return NO;
+    }
+    index += warmupCount;
+
+    if (![self executeSaveSequence:MLDT50CaptureV3BrightnessRampSequence
+                         stepCount:rampCount
+                          onDevice:device
+                    startingAtStep:index
+                        totalSteps:totalSteps
+                             error:error]) {
+        return NO;
+    }
+    index += rampCount;
+
+    return [self executeSaveSequence:MLDT50CaptureV3FinalizeSequence
+                           stepCount:finalizeCount
+                            onDevice:device
+                      startingAtStep:index
+                          totalSteps:totalSteps
+                               error:error];
+}
+
 - (BOOL)saveSettingsToDevice:(MLDMouseDevice *)device
                     strategy:(MLDT50SaveStrategy)strategy
                        error:(NSError **)error {
@@ -379,42 +434,37 @@ static const MLDT50SaveStep MLDT50CaptureV3FinalizeSequence[] = {
             steps = MLDT50CaptureV2SaveSequence;
             stepCount = sizeof(MLDT50CaptureV2SaveSequence) / sizeof(MLDT50CaptureV2SaveSequence[0]);
             break;
-        case MLDT50SaveStrategyCaptureV3: {
-            const NSUInteger warmupCount = sizeof(MLDT50CaptureV3WarmupSequence) / sizeof(MLDT50CaptureV3WarmupSequence[0]);
-            const NSUInteger rampCount =
-                sizeof(MLDT50CaptureV3BrightnessRampSequence) / sizeof(MLDT50CaptureV3BrightnessRampSequence[0]);
-            const NSUInteger finalizeCount =
-                sizeof(MLDT50CaptureV3FinalizeSequence) / sizeof(MLDT50CaptureV3FinalizeSequence[0]);
-            const NSUInteger totalSteps = warmupCount + rampCount + finalizeCount;
-            NSUInteger index = 0;
+        case MLDT50SaveStrategyCaptureV3:
+            return [self executeCaptureV3OnDevice:device
+                                   startingAtStep:0
+                                        totalSteps:[MLDT50ExchangeVendorCommandUseCase
+                                                       saveStepCountForStrategy:MLDT50SaveStrategyCaptureV3]
+                                            error:error];
+        case MLDT50SaveStrategyCaptureV4: {
+            const NSUInteger captureStepCount =
+                [MLDT50ExchangeVendorCommandUseCase saveStepCountForStrategy:MLDT50SaveStrategyCaptureV3];
+            const NSUInteger majorStepCount =
+                sizeof(MLDT50MajorSyncSequence) / sizeof(MLDT50MajorSyncSequence[0]);
+            const NSUInteger totalSteps = captureStepCount + majorStepCount;
 
-            if (![self executeSaveSequence:MLDT50CaptureV3WarmupSequence
-                                 stepCount:warmupCount
-                                  onDevice:device
-                            startingAtStep:index
-                                totalSteps:totalSteps
-                                     error:error]) {
+            if (![self executeCaptureV3OnDevice:device
+                                   startingAtStep:0
+                                        totalSteps:totalSteps
+                                            error:error]) {
                 return NO;
             }
-            index += warmupCount;
 
-            if (![self executeSaveSequence:MLDT50CaptureV3BrightnessRampSequence
-                                 stepCount:rampCount
-                                  onDevice:device
-                            startingAtStep:index
-                                totalSteps:totalSteps
-                                     error:error]) {
-                return NO;
-            }
-            index += rampCount;
-
-            return [self executeSaveSequence:MLDT50CaptureV3FinalizeSequence
-                                   stepCount:finalizeCount
+            return [self executeSaveSequence:MLDT50MajorSyncSequence
+                                   stepCount:majorStepCount
                                     onDevice:device
-                              startingAtStep:index
+                              startingAtStep:captureStepCount
                                   totalSteps:totalSteps
                                        error:error];
         }
+        case MLDT50SaveStrategyMajorSync:
+            steps = MLDT50MajorSyncSequence;
+            stepCount = sizeof(MLDT50MajorSyncSequence) / sizeof(MLDT50MajorSyncSequence[0]);
+            break;
         default:
             if (error != nil) {
                 NSString *message = [NSString stringWithFormat:@"Unsupported T50 save strategy: %lu.",

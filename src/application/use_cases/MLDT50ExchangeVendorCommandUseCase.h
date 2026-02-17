@@ -25,6 +25,8 @@ typedef NS_ENUM(NSUInteger, MLDT50SaveStrategy) {
     MLDT50SaveStrategyCaptureV1 = 1,
     MLDT50SaveStrategyCaptureV2 = 2,
     MLDT50SaveStrategyCaptureV3 = 3,
+    MLDT50SaveStrategyCaptureV4 = 4,
+    MLDT50SaveStrategyMajorSync = 5,
 };
 
 @interface MLDT50ExchangeVendorCommandUseCase : NSObject

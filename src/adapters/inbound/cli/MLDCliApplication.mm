@@ -14,6 +14,9 @@
 
 static const NSUInteger MLDT50DirectColorSlotCount = 21;
 static const NSUInteger MLDT50DirectColorStartOffset = 6;
+static const NSUInteger MLDT50SimulatorColorIndexCount = 116;
+static const NSUInteger MLDT50SimulatorChunkSize = 58;
+static const NSUInteger MLDT50SimulatorChunkSplitOffset = 56;
 
 @interface MLDCliApplication ()
 
@@ -493,21 +496,22 @@ static const NSUInteger MLDT50DirectColorStartOffset = 6;
     printf("  t50 backlight-set --level <0..3> [selectors]\n");
     printf("  t50 core-get [selectors]\n");
     printf("  t50 core-state [selectors]\n");
-    printf("  t50 core-set --core <1..4> [--save <0|1>] [--strategy <quick|capture-v1|capture-v2|capture-v3>] [selectors]\n");
-    printf("  t50 save [--strategy <quick|capture-v1|capture-v2|capture-v3>] [selectors]\n");
+    printf("  t50 core-set --core <1..4> [--save <0|1>] [--strategy <quick|capture-v1|capture-v2|capture-v3|capture-v4|major-sync>] [selectors]\n");
+    printf("  t50 save [--strategy <quick|capture-v1|capture-v2|capture-v3|capture-v4|major-sync>] [selectors]\n");
     printf("  t50 command-read --opcode <n> [--flag <n>] [--offset <n>] [--data <hex>] [selectors]\n");
     printf("  t50 command-write --opcode <n> --data <hex> [--flag <n>] [--offset <n>] [selectors]\n");
     printf("  t50 opcode-scan [--from <n>] [--to <n>] [--flag <n>] [--offset <n>] [--data <hex>] [selectors]\n");
     printf("  t50 capture --file <path> [--from <n>] [--to <n>] [--flag <n>] [--offset <n>] [--data <hex>] [selectors]\n");
     printf("  t50 capture-diff --before <path> --after <path>\n");
     printf("  t50 dpi-probe --opcode <n> --dpi <n> [--flag <n>] [--offset <n>] [selectors]\n");
-    printf("  t50 dpi-step --action <up|down|cycle> [--opcode <n>] [--commit <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2|capture-v3>] [selectors]\n");
+    printf("  t50 dpi-step --action <up|down|cycle> [--opcode <n>] [--commit <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2|capture-v3|capture-v4|major-sync>] [selectors]\n");
     printf("  t50 polling-probe --opcode <n> --hz <n> [--flag <n>] [--offset <n>] [selectors]\n");
     printf("  t50 lod-probe --opcode <n> --lod <n> [--flag <n>] [--offset <n>] [selectors]\n");
     printf("  t50 color-mode --mode <open|effect|discard> [selectors]\n");
-    printf("  t50 color-direct --r <n> --g <n> --b <n> [--slots <1..21>] [--slot <1..21>] [--frames <1..120>] [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2|capture-v3>] [selectors]\n");
-    printf("  t50 color-zone --zone <logo|wheel|wheel-indicator|rear|all> --r <n> --g <n> --b <n> [--frames <1..120>] [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2|capture-v3>] [selectors]\n");
-    printf("  t50 color-sweep --r <n> --g <n> --b <n> [--from <1..21>] [--to <1..21>] [--delay-ms <n>] [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2|capture-v3>] [selectors]\n");
+    printf("  t50 color-direct --r <n> --g <n> --b <n> [--slots <1..21>] [--slot <1..21>] [--frames <1..120>] [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2|capture-v3|capture-v4|major-sync>] [selectors]\n");
+    printf("  t50 color-zone --zone <logo|wheel|wheel-indicator|rear|all> --r <n> --g <n> --b <n> [--frames <1..120>] [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2|capture-v3|capture-v4|major-sync>] [selectors]\n");
+    printf("  t50 color-sweep --r <n> --g <n> --b <n> [--from <1..21>] [--to <1..21>] [--delay-ms <n>] [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2|capture-v3|capture-v4|major-sync>] [selectors]\n");
+    printf("  t50 color-sim116 --r <n> --g <n> --b <n> [--index <0..115>] [--from <0..115>] [--to <0..115>] [--delay-ms <n>] [--prepare <0|1>] [--save <0|1>] [--strategy <quick|capture-v1|capture-v2|capture-v3|capture-v4|major-sync>] [selectors]\n");
     printf("  t50 color-probe --opcode <n> --r <n> --g <n> --b <n> [--flag <n>] [--offset <n>] [selectors]\n");
     printf("\n");
     printf("selectors: --vid --pid --serial --model\n");
@@ -578,6 +582,9 @@ static const NSUInteger MLDT50DirectColorStartOffset = 6;
     }
     if ([subcommand isEqualToString:@"color-sweep"]) {
         return [self runT50ColorSweepWithArguments:subArguments];
+    }
+    if ([subcommand isEqualToString:@"color-sim116"]) {
+        return [self runT50ColorSimulator116WithArguments:subArguments];
     }
     if ([subcommand isEqualToString:@"color-probe"]) {
         return [self runT50ColorProbeWithArguments:subArguments];
@@ -773,18 +780,15 @@ static const NSUInteger MLDT50DirectColorStartOffset = 6;
         return 1;
     }
 
-    NSString *strategyOption = options[@"--strategy"] ?: @"capture-v1";
+    NSString *strategyOption = nil;
     MLDT50SaveStrategy strategy = MLDT50SaveStrategyCaptureV1;
-    if ([strategyOption isEqualToString:@"quick"]) {
-        strategy = MLDT50SaveStrategyQuick;
-    } else if ([strategyOption isEqualToString:@"capture-v1"]) {
-        strategy = MLDT50SaveStrategyCaptureV1;
-    } else if ([strategyOption isEqualToString:@"capture-v2"]) {
-        strategy = MLDT50SaveStrategyCaptureV2;
-    } else if ([strategyOption isEqualToString:@"capture-v3"]) {
-        strategy = MLDT50SaveStrategyCaptureV3;
-    } else {
-        fprintf(stderr, "t50 core-set --strategy must be one of: quick, capture-v1, capture-v2, capture-v3.\n");
+    if (![self parseT50SaveStrategyOption:options[@"--strategy"]
+                             defaultValue:@"capture-v1"
+                               subcommand:@"t50 core-set"
+                                 strategy:&strategy
+                            strategyLabel:&strategyOption
+                             errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
         return 1;
     }
 
@@ -831,18 +835,15 @@ static const NSUInteger MLDT50DirectColorStartOffset = 6;
         return 1;
     }
 
-    NSString *strategyOption = options[@"--strategy"] ?: @"quick";
+    NSString *strategyOption = nil;
     MLDT50SaveStrategy strategy = MLDT50SaveStrategyQuick;
-    if ([strategyOption isEqualToString:@"quick"]) {
-        strategy = MLDT50SaveStrategyQuick;
-    } else if ([strategyOption isEqualToString:@"capture-v1"]) {
-        strategy = MLDT50SaveStrategyCaptureV1;
-    } else if ([strategyOption isEqualToString:@"capture-v2"]) {
-        strategy = MLDT50SaveStrategyCaptureV2;
-    } else if ([strategyOption isEqualToString:@"capture-v3"]) {
-        strategy = MLDT50SaveStrategyCaptureV3;
-    } else {
-        fprintf(stderr, "t50 save --strategy must be one of: quick, capture-v1, capture-v2, capture-v3.\n");
+    if (![self parseT50SaveStrategyOption:options[@"--strategy"]
+                             defaultValue:@"quick"
+                               subcommand:@"t50 save"
+                                 strategy:&strategy
+                            strategyLabel:&strategyOption
+                             errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
         return 1;
     }
 
@@ -1459,18 +1460,15 @@ static const NSUInteger MLDT50DirectColorStartOffset = 6;
         return 1;
     }
 
-    NSString *strategyOption = options[@"--strategy"] ?: @"capture-v2";
+    NSString *strategyOption = nil;
     MLDT50SaveStrategy strategy = MLDT50SaveStrategyCaptureV2;
-    if ([strategyOption isEqualToString:@"quick"]) {
-        strategy = MLDT50SaveStrategyQuick;
-    } else if ([strategyOption isEqualToString:@"capture-v1"]) {
-        strategy = MLDT50SaveStrategyCaptureV1;
-    } else if ([strategyOption isEqualToString:@"capture-v2"]) {
-        strategy = MLDT50SaveStrategyCaptureV2;
-    } else if ([strategyOption isEqualToString:@"capture-v3"]) {
-        strategy = MLDT50SaveStrategyCaptureV3;
-    } else {
-        fprintf(stderr, "t50 dpi-step --strategy must be one of: quick, capture-v1, capture-v2, capture-v3.\n");
+    if (![self parseT50SaveStrategyOption:options[@"--strategy"]
+                             defaultValue:@"capture-v2"
+                               subcommand:@"t50 dpi-step"
+                                 strategy:&strategy
+                            strategyLabel:&strategyOption
+                             errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
         return 1;
     }
 
@@ -1771,18 +1769,15 @@ static const NSUInteger MLDT50DirectColorStartOffset = 6;
         return 1;
     }
 
-    NSString *strategyOption = options[@"--strategy"] ?: @"quick";
+    NSString *strategyOption = nil;
     MLDT50SaveStrategy strategy = MLDT50SaveStrategyQuick;
-    if ([strategyOption isEqualToString:@"quick"]) {
-        strategy = MLDT50SaveStrategyQuick;
-    } else if ([strategyOption isEqualToString:@"capture-v1"]) {
-        strategy = MLDT50SaveStrategyCaptureV1;
-    } else if ([strategyOption isEqualToString:@"capture-v2"]) {
-        strategy = MLDT50SaveStrategyCaptureV2;
-    } else if ([strategyOption isEqualToString:@"capture-v3"]) {
-        strategy = MLDT50SaveStrategyCaptureV3;
-    } else {
-        fprintf(stderr, "t50 color-direct --strategy must be one of: quick, capture-v1, capture-v2, capture-v3.\n");
+    if (![self parseT50SaveStrategyOption:options[@"--strategy"]
+                             defaultValue:@"quick"
+                               subcommand:@"t50 color-direct"
+                                 strategy:&strategy
+                            strategyLabel:&strategyOption
+                             errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
         return 1;
     }
 
@@ -1941,18 +1936,15 @@ static const NSUInteger MLDT50DirectColorStartOffset = 6;
         return 1;
     }
 
-    NSString *strategyOption = options[@"--strategy"] ?: @"quick";
+    NSString *strategyOption = nil;
     MLDT50SaveStrategy strategy = MLDT50SaveStrategyQuick;
-    if ([strategyOption isEqualToString:@"quick"]) {
-        strategy = MLDT50SaveStrategyQuick;
-    } else if ([strategyOption isEqualToString:@"capture-v1"]) {
-        strategy = MLDT50SaveStrategyCaptureV1;
-    } else if ([strategyOption isEqualToString:@"capture-v2"]) {
-        strategy = MLDT50SaveStrategyCaptureV2;
-    } else if ([strategyOption isEqualToString:@"capture-v3"]) {
-        strategy = MLDT50SaveStrategyCaptureV3;
-    } else {
-        fprintf(stderr, "t50 color-zone --strategy must be one of: quick, capture-v1, capture-v2, capture-v3.\n");
+    if (![self parseT50SaveStrategyOption:options[@"--strategy"]
+                             defaultValue:@"quick"
+                               subcommand:@"t50 color-zone"
+                                 strategy:&strategy
+                            strategyLabel:&strategyOption
+                             errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
         return 1;
     }
 
@@ -2071,18 +2063,15 @@ static const NSUInteger MLDT50DirectColorStartOffset = 6;
         return 1;
     }
 
-    NSString *strategyOption = options[@"--strategy"] ?: @"quick";
+    NSString *strategyOption = nil;
     MLDT50SaveStrategy strategy = MLDT50SaveStrategyQuick;
-    if ([strategyOption isEqualToString:@"quick"]) {
-        strategy = MLDT50SaveStrategyQuick;
-    } else if ([strategyOption isEqualToString:@"capture-v1"]) {
-        strategy = MLDT50SaveStrategyCaptureV1;
-    } else if ([strategyOption isEqualToString:@"capture-v2"]) {
-        strategy = MLDT50SaveStrategyCaptureV2;
-    } else if ([strategyOption isEqualToString:@"capture-v3"]) {
-        strategy = MLDT50SaveStrategyCaptureV3;
-    } else {
-        fprintf(stderr, "t50 color-sweep --strategy must be one of: quick, capture-v1, capture-v2, capture-v3.\n");
+    if (![self parseT50SaveStrategyOption:options[@"--strategy"]
+                             defaultValue:@"quick"
+                               subcommand:@"t50 color-sweep"
+                                 strategy:&strategy
+                            strategyLabel:&strategyOption
+                             errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
         return 1;
     }
 
@@ -2155,6 +2144,195 @@ static const NSUInteger MLDT50DirectColorStartOffset = 6;
     return 0;
 }
 
+- (BOOL)sendT50SimulatorChunkWithSubcommand:(uint8_t)subcommand
+                                      chunk:(const uint8_t *)chunk
+                                   onDevice:(MLDMouseDevice *)device
+                                      error:(NSError **)error {
+    NSMutableData *payload = [NSMutableData dataWithLength:2 + 4 + MLDT50SimulatorChunkSplitOffset];
+    uint8_t *bytes = (uint8_t *)payload.mutableBytes;
+    bytes[0] = 0x06;
+    bytes[1] = subcommand;
+    bytes[2] = 0x00;
+    bytes[3] = 0x00;
+    bytes[4] = chunk[MLDT50SimulatorChunkSplitOffset];
+    bytes[5] = chunk[MLDT50SimulatorChunkSplitOffset + 1];
+    memcpy(bytes + 6, chunk, MLDT50SimulatorChunkSplitOffset);
+
+    NSData *response = [self.t50ExchangeCommandUseCase executeForDevice:device
+                                                                  opcode:0x03
+                                                               writeFlag:0x00
+                                                           payloadOffset:2
+                                                                 payload:payload
+                                                                   error:error];
+    return response != nil;
+}
+
+- (BOOL)sendT50Simulator116Red:(const uint8_t *)red
+                         green:(const uint8_t *)green
+                          blue:(const uint8_t *)blue
+                      onDevice:(MLDMouseDevice *)device
+                         error:(NSError **)error {
+    uint8_t redChunk1[MLDT50SimulatorChunkSize];
+    uint8_t redChunk2[MLDT50SimulatorChunkSize];
+    uint8_t greenChunk1[MLDT50SimulatorChunkSize];
+    uint8_t greenChunk2[MLDT50SimulatorChunkSize];
+    uint8_t blueChunk1[MLDT50SimulatorChunkSize];
+    uint8_t blueChunk2[MLDT50SimulatorChunkSize];
+
+    memcpy(redChunk1, red, MLDT50SimulatorChunkSize);
+    memcpy(redChunk2, red + MLDT50SimulatorChunkSize, MLDT50SimulatorChunkSize);
+    memcpy(greenChunk1, green, MLDT50SimulatorChunkSize);
+    memcpy(greenChunk2, green + MLDT50SimulatorChunkSize, MLDT50SimulatorChunkSize);
+    memcpy(blueChunk1, blue, MLDT50SimulatorChunkSize);
+    memcpy(blueChunk2, blue + MLDT50SimulatorChunkSize, MLDT50SimulatorChunkSize);
+
+    if (![self sendT50SimulatorChunkWithSubcommand:0x07 chunk:redChunk1 onDevice:device error:error]) {
+        return NO;
+    }
+    if (![self sendT50SimulatorChunkWithSubcommand:0x08 chunk:redChunk2 onDevice:device error:error]) {
+        return NO;
+    }
+    if (![self sendT50SimulatorChunkWithSubcommand:0x09 chunk:greenChunk1 onDevice:device error:error]) {
+        return NO;
+    }
+    if (![self sendT50SimulatorChunkWithSubcommand:0x0A chunk:greenChunk2 onDevice:device error:error]) {
+        return NO;
+    }
+    if (![self sendT50SimulatorChunkWithSubcommand:0x0B chunk:blueChunk1 onDevice:device error:error]) {
+        return NO;
+    }
+    return [self sendT50SimulatorChunkWithSubcommand:0x0C chunk:blueChunk2 onDevice:device error:error];
+}
+
+- (int)runT50ColorSimulator116WithArguments:(NSArray<NSString *> *)arguments {
+    NSString *parseError = nil;
+    NSDictionary<NSString *, NSString *> *options = [self parseOptionMapFromArguments:arguments errorMessage:&parseError];
+    if (options == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSSet<NSString *> *allowed = [NSSet setWithArray:@[
+        @"--r", @"--g", @"--b", @"--index", @"--from", @"--to", @"--delay-ms", @"--prepare", @"--save", @"--strategy", @"--vid", @"--pid", @"--serial", @"--model"
+    ]];
+    if (![self validateAllowedOptions:allowed options:options errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    NSString *rString = options[@"--r"];
+    NSString *gString = options[@"--g"];
+    NSString *bString = options[@"--b"];
+    if (rString == nil || gString == nil || bString == nil) {
+        fprintf(stderr, "t50 color-sim116 requires --r, --g, and --b.\n");
+        return 1;
+    }
+
+    NSUInteger redValue = 0;
+    NSUInteger greenValue = 0;
+    NSUInteger blueValue = 0;
+    NSUInteger indexValue = 0;
+    NSUInteger fromIndex = 0;
+    NSUInteger toIndex = MLDT50SimulatorColorIndexCount - 1;
+    NSUInteger delayMilliseconds = 250;
+    NSUInteger prepareValue = 0;
+    NSUInteger saveValue = 0;
+    BOOL hasIndex = options[@"--index"] != nil;
+    if (![self parseRequiredUnsigned:rString maxValue:255 fieldName:@"--r" output:&redValue errorMessage:&parseError] ||
+        ![self parseRequiredUnsigned:gString maxValue:255 fieldName:@"--g" output:&greenValue errorMessage:&parseError] ||
+        ![self parseRequiredUnsigned:bString maxValue:255 fieldName:@"--b" output:&blueValue errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--index"] maxValue:(MLDT50SimulatorColorIndexCount - 1) fieldName:@"--index" output:&indexValue errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--from"] maxValue:(MLDT50SimulatorColorIndexCount - 1) fieldName:@"--from" output:&fromIndex errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--to"] maxValue:(MLDT50SimulatorColorIndexCount - 1) fieldName:@"--to" output:&toIndex errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--delay-ms"] maxValue:5000 fieldName:@"--delay-ms" output:&delayMilliseconds errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--prepare"] maxValue:1 fieldName:@"--prepare" output:&prepareValue errorMessage:&parseError] ||
+        ![self parseOptionalUnsigned:options[@"--save"] maxValue:1 fieldName:@"--save" output:&saveValue errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    if (hasIndex) {
+        fromIndex = indexValue;
+        toIndex = indexValue;
+    }
+    if (fromIndex > toIndex) {
+        fprintf(stderr, "t50 color-sim116 requires --from <= --to.\n");
+        return 1;
+    }
+
+    NSString *strategyOption = nil;
+    MLDT50SaveStrategy strategy = MLDT50SaveStrategyQuick;
+    if (![self parseT50SaveStrategyOption:options[@"--strategy"]
+                             defaultValue:@"quick"
+                               subcommand:@"t50 color-sim116"
+                                 strategy:&strategy
+                            strategyLabel:&strategyOption
+                             errorMessage:&parseError]) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    MLDMouseDevice *target = [self selectT50DeviceWithOptions:options errorMessage:&parseError];
+    if (target == nil) {
+        fprintf(stderr, "%s\n", parseError.UTF8String);
+        return 1;
+    }
+
+    if (prepareValue == 1) {
+        NSError *prepareError = nil;
+        if (![self prepareT50ColorWriteSessionOnDevice:target error:&prepareError]) {
+            fprintf(stderr, "t50 color-sim116 prepare error: %s\n", prepareError.localizedDescription.UTF8String);
+            return 1;
+        }
+    }
+
+    const uint8_t redByte = (uint8_t)redValue;
+    const uint8_t greenByte = (uint8_t)greenValue;
+    const uint8_t blueByte = (uint8_t)blueValue;
+    for (NSUInteger index = fromIndex; index <= toIndex; ++index) {
+        uint8_t red[MLDT50SimulatorColorIndexCount] = {0};
+        uint8_t green[MLDT50SimulatorColorIndexCount] = {0};
+        uint8_t blue[MLDT50SimulatorColorIndexCount] = {0};
+        red[index] = redByte;
+        green[index] = greenByte;
+        blue[index] = blueByte;
+
+        NSError *writeError = nil;
+        if (![self sendT50Simulator116Red:red green:green blue:blue onDevice:target error:&writeError]) {
+            fprintf(stderr, "t50 color-sim116 write error at index %lu: %s\n",
+                    (unsigned long)index,
+                    writeError.localizedDescription.UTF8String);
+            return 1;
+        }
+
+        printf("t50 color-sim116 index=%lu/%lu\n", (unsigned long)index, (unsigned long)toIndex);
+        if (delayMilliseconds > 0 && index < toIndex) {
+            [NSThread sleepForTimeInterval:((NSTimeInterval)delayMilliseconds / 1000.0)];
+        }
+    }
+
+    if (saveValue == 1) {
+        NSError *saveError = nil;
+        BOOL saved = [self.t50ExchangeCommandUseCase saveSettingsToDevice:target strategy:strategy error:&saveError];
+        if (!saved) {
+            fprintf(stderr, "t50 color-sim116 save error: %s\n", saveError.localizedDescription.UTF8String);
+            return 1;
+        }
+    }
+
+    printf("t50 color-sim116 done range=%lu..%lu r=%lu g=%lu b=%lu delay-ms=%lu prepare=%lu save=%lu strategy=%s\n",
+           (unsigned long)fromIndex,
+           (unsigned long)toIndex,
+           (unsigned long)redValue,
+           (unsigned long)greenValue,
+           (unsigned long)blueValue,
+           (unsigned long)delayMilliseconds,
+           (unsigned long)prepareValue,
+           (unsigned long)saveValue,
+           strategyOption.UTF8String);
+    return 0;
+}
+
 - (int)runT50ColorProbeWithArguments:(NSArray<NSString *> *)arguments {
     NSString *parseError = nil;
     NSDictionary<NSString *, NSString *> *options = [self parseOptionMapFromArguments:arguments errorMessage:&parseError];
@@ -2206,6 +2384,49 @@ static const NSUInteger MLDT50DirectColorStartOffset = 6;
                                       offset:offset
                                      payload:payload
                                 successLabel:@"t50 color-probe"];
+}
+
+- (BOOL)parseT50SaveStrategyOption:(nullable NSString *)optionValue
+                      defaultValue:(NSString *)defaultValue
+                        subcommand:(NSString *)subcommand
+                          strategy:(MLDT50SaveStrategy *)strategy
+                     strategyLabel:(NSString **)strategyLabel
+                      errorMessage:(NSString **)errorMessage {
+    NSString *value = optionValue ?: defaultValue;
+    if (strategyLabel != nil) {
+        *strategyLabel = value;
+    }
+
+    if ([value isEqualToString:@"quick"]) {
+        *strategy = MLDT50SaveStrategyQuick;
+        return YES;
+    }
+    if ([value isEqualToString:@"capture-v1"]) {
+        *strategy = MLDT50SaveStrategyCaptureV1;
+        return YES;
+    }
+    if ([value isEqualToString:@"capture-v2"]) {
+        *strategy = MLDT50SaveStrategyCaptureV2;
+        return YES;
+    }
+    if ([value isEqualToString:@"capture-v3"]) {
+        *strategy = MLDT50SaveStrategyCaptureV3;
+        return YES;
+    }
+    if ([value isEqualToString:@"capture-v4"]) {
+        *strategy = MLDT50SaveStrategyCaptureV4;
+        return YES;
+    }
+    if ([value isEqualToString:@"major-sync"]) {
+        *strategy = MLDT50SaveStrategyMajorSync;
+        return YES;
+    }
+
+    if (errorMessage != nil) {
+        *errorMessage =
+            [NSString stringWithFormat:@"%@ --strategy must be one of: quick, capture-v1, capture-v2, capture-v3, capture-v4, major-sync.", subcommand];
+    }
+    return NO;
 }
 
 - (int)runT50WriteProbeWithOptions:(NSDictionary<NSString *, NSString *> *)options
